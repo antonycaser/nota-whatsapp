@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nota Fiscal → WhatsApp</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+:root {
+  --bg: #0a0a0f; --surface: #13131a; --border: #1e1e2e;
+  --accent: #25d366; --accent2: #128c7e; --text: #e8e8f0;
+  --muted: #6b6b80; --error: #ff4d6d; --warning: #ffb830;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg); color: var(--text);
+  min-height: 100vh; display: flex;
+  align-items: center; justify-content: center; padding: 24px;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(37,211,102,.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(18,140,126,.06) 0%, transparent 50%);
+}
+.container { width: 100%; max-width: 540px; }
+.header { text-align: center; margin-bottom: 32px; }
+.logo-icon {
+  width: 52px; height: 52px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 16px; display: inline-flex;
+  align-items: center; justify-content: center;
+  font-size: 24px; margin-bottom: 12px;
+  box-shadow: 0 0 30px rgba(37,211,102,.25);
+}
+h1 { font-family: 'Syne', sans-serif; font-size: 24px; font-weight: 800; }
+.subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 22px; margin-bottom: 14px;
+}
+.slabel {
+  font-family: 'Syne', sans-serif; font-size: 10px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 14px;
+}
+.upload-area {
+  border: 2px dashed var(--border); border-radius: 14px;
+  padding: 30px 20px; text-align: center; cursor: pointer;
+  transition: all .2s; position: relative;
+}
+.upload-area:hover { border-color: var(--accent); background: rgba(37,211,102,.04); }
+.upload-area input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.upload-icon { font-size: 30px; margin-bottom: 8px; }
+.upload-text { font-size: 14px; font-weight: 500; margin-bottom: 3px; }
+.upload-hint { font-size: 12px; color: var(--muted); }
+.preview-img { width: 100%; max-height: 160px; object-fit: contain; border-radius: 10px; margin-top: 12px; display: none; }
+.step {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px; border-radius: 11px;
+  background: rgba(255,255,255,.02); border: 1px solid transparent;
+  transition: all .3s; font-size: 13px; color: var(--muted); margin-bottom: 8px;
+}
+.step:last-child { margin-bottom: 0; }
+.step.active { border-color: var(--warning); color: var(--warning); background: rgba(255,184,48,.05); }
+.step.done   { border-color: rgba(37,211,102,.3); color: var(--accent); background: rgba(37,211,102,.05); }
+.step.error  { border-color: rgba(255,77,109,.3); color: var(--error); background: rgba(255,77,109,.05); }
+.resultados { margin-top: 14px; display: none; flex-direction: column; gap: 10px; }
+.ccard {
+  border-radius: 12px; padding: 13px 15px;
+  background: rgba(255,255,255,.03); border: 1px solid var(--border); font-size: 13px;
+}
+.ccard.enviado { border-color: rgba(37,211,102,.3); background: rgba(37,211,102,.05); }
+.ccard.falhou  { border-color: rgba(255,77,109,.3); background: rgba(255,77,109,.05); }
+.ccard.aguardando { opacity: .5; }
+.cnome { font-weight: 600; font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+.cdet  { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  padding: 2px 8px; border-radius: 50px; text-transform: uppercase;
+}
+.badge.ok   { background: rgba(37,211,102,.15); color: var(--accent); }
+.badge.err  { background: rgba(255,77,109,.15);  color: var(--error); }
+.badge.wait { background: rgba(255,184,48,.15);  color: var(--warning); }
+.btn {
+  width: 100%; padding: 15px; border-radius: 14px; border: none;
+  font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700;
+  letter-spacing: .5px; cursor: pointer; transition: all .2s;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; box-shadow: 0 4px 20px rgba(37,211,102,.25);
+}
+.btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(37,211,102,.35); }
+.btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.btn-sec {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text); font-size: 13px; padding: 12px; margin-top: 8px;
+}
+.btn-sec:hover { border-color: var(--accent); color: var(--accent); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.3);
+  border-top-color: currentColor; border-radius: 50%;
+  animation: spin .7s linear infinite; flex-shrink: 0;
+}
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); padding: 12px 22px; border-radius: 50px;
+  font-size: 13px; font-weight: 500;
+  transition: transform .3s cubic-bezier(.34,1.56,.64,1);
+  z-index: 100; white-space: nowrap;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.ok  { border-color: rgba(37,211,102,.4); color: var(--accent); }
+.toast.err { border-color: rgba(255,77,109,.4);  color: var(--error); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="logo-icon">🧾</div>
+    <h1>Nota → WhatsApp</h1>
+    <p class="subtitle">Foto da nota → mensagem automática para cada cliente</p>
+  </div>
+
+  <div class="card">
+    <div class="slabel">📸 Nota Fiscal</div>
+    <div class="upload-area" id="uploadArea">
+      <input type="file" id="fileInput" accept="image/*" capture="environment">
+      <div class="upload-icon">📷</div>
+      <div class="upload-text">Tire foto ou selecione a imagem</div>
+      <div class="upload-hint">JPG, PNG — qualquer formato</div>
+    </div>
+    <img id="previewImg" class="preview-img" alt="Preview">
+  </div>
+
+  <div class="card">
+    <div class="slabel">⚙️ Processamento</div>
+    <div class="step" id="s1"><span class="si">🔍</span><span id="s1t">Aguardando nota fiscal...</span></div>
+    <div class="step" id="s2"><span class="si">👥</span><span id="s2t">Cruzando com clientes...</span></div>
+    <div class="step" id="s3"><span class="si">💬</span><span id="s3t">Enviando mensagens...</span></div>
+    <div class="resultados" id="res"></div>
+  </div>
+
+  <button class="btn btn-primary" id="btnEnviar" disabled onclick="processar()">
+    <span>📤</span> Processar e Enviar
+  </button>
+  <button class="btn btn-sec" id="btnReset" onclick="resetar()" style="display:none">
+    🔄 Nova nota
+  </button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────
+const ZAPI = "https://api.z-api.io/instances/3F287B3BA308417065166244BF24326C/token/B95C95504E00CDD4D134098F";
+
+const CLIENTES = [
+  { nome: "Jonas", whatsapp: "5528999229377", perfume: "212 vip black" },
+  // adicione mais clientes aqui
+];
+
+// ── ESTADO ──────────────────────────────────────────────────
+let imgB64 = null, imgMime = "image/jpeg";
+
+// ── UPLOAD ──────────────────────────────────────────────────
+const fi = document.getElementById("fileInput");
+const pi = document.getElementById("previewImg");
+const be = document.getElementById("btnEnviar");
+
+fi.addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return;
+  imgMime = f.type || "image/jpeg";
+  const r = new FileReader();
+  r.onload = ev => {
+    imgB64 = ev.target.result.split(",")[1];
+    pi.src = ev.target.result; pi.style.display = "block";
+    be.disabled = false; resetUI();
+  };
+  r.readAsDataURL(f);
+});
+
+const ua = document.getElementById("uploadArea");
+ua.addEventListener("dragover",  e => { e.preventDefault(); ua.classList.add("drag-over"); });
+ua.addEventListener("dragleave", () => ua.classList.remove("drag-over"));
+ua.addEventListener("drop", e => {
+  e.preventDefault(); ua.classList.remove("drag-over");
+  const f = e.dataTransfer.files[0];
+  if (f) { fi.files = e.dataTransfer.files; fi.dispatchEvent(new Event("change")); }
+});
+
+// ── UI HELPERS ───────────────────────────────────────────────
+const ICONS  = ["🔍","👥","💬"];
+const LABELS = ["Aguardando nota fiscal...","Cruzando com clientes...","Enviando mensagens..."];
+
+function setStep(n, cls, txt) {
+  const el = document.getElementById(`s${n}`);
+  el.className = `step ${cls}`;
+  if (txt) document.getElementById(`s${n}t`).textContent = txt;
+  const old = el.querySelector(".si, .spinner");
+  if (cls === "active") {
+    const sp = document.createElement("div"); sp.className = "spinner";
+    old ? old.replaceWith(sp) : el.prepend(sp);
+  } else if (!el.querySelector(".si")) {
+    const ic = document.createElement("span"); ic.className = "si"; ic.textContent = ICONS[n-1];
+    const sp = el.querySelector(".spinner"); sp ? sp.replaceWith(ic) : el.prepend(ic);
+  }
+}
+
+function resetUI() {
+  [1,2,3].forEach(n => {
+    document.getElementById(`s${n}`).className = "step";
+    document.getElementById(`s${n}`).innerHTML = `<span class="si">${ICONS[n-1]}</span><span id="s${n}t">${LABELS[n-1]}</span>`;
+  });
+  const r = document.getElementById("res"); r.style.display = "none"; r.innerHTML = "";
+  document.getElementById("btnReset").style.display = "none";
+}
+
+function toast(msg, cls = "") {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = `toast ${cls} show`;
+  setTimeout(() => t.classList.remove("show"), 4000);
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function fmtTel(t) {
+  const n = t.replace(/\D/g,"");
+  return n.length === 13 ? `+${n.slice(0,2)} (${n.slice(2,4)}) ${n.slice(4,9)}-${n.slice(9)}` : t;
+}
+
+function match(nota, cliente) {
+  const a = nota.toLowerCase(), b = cliente.toLowerCase();
+  if (a.includes(b) || b.includes(a)) return true;
+  const stop = ["de","do","da","le","la","eau","edt","edp","ml","200","100","150","80","men","homme"];
+  const wa = a.split(/\s+/).filter(w => w.length > 2 && !stop.includes(w));
+  const wb = b.split(/\s+/).filter(w => w.length > 2 && !stop.includes(w));
+  return wa.filter(w => wb.some(x => x.includes(w) || w.includes(x))).length >= 2;
+}
+
+// ── LER IMAGEM COM CLAUDE (via API embutida do artifact) ─────
+async function lerPerfumes(b64, mime) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mime, data: b64 } },
+          { type: "text", text: `Você é um especialista em leitura de notas fiscais de perfumaria.
+
+Analise esta nota fiscal e extraia TODOS os nomes dos perfumes/fragrâncias na lista de produtos.
+
+Retorne SOMENTE este JSON (sem markdown, sem texto extra):
+{"perfumes":["nome 1","nome 2"]}
+
+Se não houver perfumes: {"perfumes":[]}` }
+        ]
+      }]
+    })
+  });
+
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const data = await resp.json();
+  const txt  = data.content?.find(b => b.type === "text")?.text?.trim() || '{"perfumes":[]}';
+  const json = JSON.parse(txt.replace(/```json|```/g,"").trim());
+  return json.perfumes || [];
+}
+
+// ── PROCESSAR ────────────────────────────────────────────────
+async function processar() {
+  if (!imgB64) return;
+  be.disabled = true;
+
+  // STEP 1 — Claude lê a nota
+  setStep(1, "active", "Lendo perfumes da nota...");
+  let perfumes = [];
+  try {
+    perfumes = await lerPerfumes(imgB64, imgMime);
+    if (!perfumes.length) {
+      setStep(1, "error", "Nenhum perfume encontrado");
+      toast("❌ Não encontrei perfumes na nota", "err");
+      be.disabled = false; return;
+    }
+    setStep(1, "done", `${perfumes.length} perfume(s) encontrado(s)`);
+  } catch(e) {
+    setStep(1, "error", "Erro ao ler a nota: " + e.message);
+    toast("❌ " + e.message, "err");
+    be.disabled = false; return;
+  }
+
+  // STEP 2 — Cruzar clientes
+  setStep(2, "active", "Identificando clientes...");
+  await sleep(400);
+
+  const hits = [];
+  for (const p of perfumes) {
+    const c = CLIENTES.find(cl => match(p, cl.perfume));
+    if (c) hits.push({ cliente: c, perfume: p });
+  }
+
+  if (!hits.length) {
+    setStep(2, "error", "Nenhum cliente encontrado");
+    toast("❌ Nenhum cliente pediu esses perfumes", "err");
+    be.disabled = false; return;
+  }
+  setStep(2, "done", `${hits.length} cliente(s) identificado(s)`);
+
+  // STEP 3 — Enviar mensagens
+  setStep(3, "active", `Enviando ${hits.length} mensagem(ns)...`);
+  const res = document.getElementById("res");
+  res.style.display = "flex"; res.innerHTML = "";
+
+  hits.forEach((h, i) => {
+    const d = document.createElement("div");
+    d.className = "ccard aguardando"; d.id = `c${i}`;
+    d.innerHTML = `
+      <div class="cnome">${h.cliente.nome} <span class="badge wait" id="b${i}">aguardando</span></div>
+      <div class="cdet" id="d${i}">📦 ${h.perfume}<br>📱 ${fmtTel(h.cliente.whatsapp)}</div>`;
+    res.appendChild(d);
+  });
+
+  let ok = 0, err = 0;
+  for (let i = 0; i < hits.length; i++) {
+    const { cliente: c, perfume: p } = hits[i];
+    const card  = document.getElementById(`c${i}`);
+    const badge = document.getElementById(`b${i}`);
+    const det   = document.getElementById(`d${i}`);
+    card.className = "ccard"; badge.className = "badge wait"; badge.textContent = "enviando...";
+
+    const msg = `Olá ${c.nome}! 🎉\n\nSeu pedido do perfume *${p}* chegou e está confirmado! ✅\n\nQualquer dúvida, estou à disposição. 😊`;
+
+    try {
+      const r = await fetch(`${ZAPI}/send-text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: c.whatsapp, message: msg })
+      });
+      const j = await r.json();
+      if (r.ok && !j.error) {
+        card.className = "ccard enviado"; badge.className = "badge ok"; badge.textContent = "enviado ✓";
+        det.innerHTML = `📦 ${p}<br>📱 ${fmtTel(c.whatsapp)}<br><span style="color:var(--accent)">✅ Enviado!</span>`;
+        ok++;
+      } else throw new Error(j.message || j.error || "Z-API erro");
+    } catch(e) {
+      card.className = "ccard falhou"; badge.className = "badge err"; badge.textContent = "falhou ✗";
+      det.innerHTML = `📦 ${p}<br>📱 ${fmtTel(c.whatsapp)}<br><span style="color:var(--error)">❌ ${e.message}</span>`;
+      err++;
+    }
+    await sleep(800);
+  }
+
+  if (!err) { setStep(3,"done",`${ok} mensagem(ns) enviada(s)!`); toast(`✅ ${ok} enviada(s)!`,"ok"); }
+  else       { setStep(3,"error",`${ok} ok · ${err} com erro`);    toast(`⚠️ ${ok} ok · ${err} erro`,"err"); }
+
+  document.getElementById("btnReset").style.display = "block";
+  be.disabled = false;
+}
+
+// ── RESET ────────────────────────────────────────────────────
+function resetar() {
+  imgB64 = null; fi.value = ""; pi.style.display = "none"; pi.src = "";
+  be.disabled = true; resetUI();
+}
+</script>
+</body>
+</html>
