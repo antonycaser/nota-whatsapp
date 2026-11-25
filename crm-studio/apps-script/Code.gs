@@ -32,7 +32,9 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .addMetaTag('mobile-web-app-capable', 'yes')
     .addMetaTag('apple-mobile-web-app-capable', 'yes')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+    // ALLOWALL: permite abrir o CRM dentro da página do portal (pasta portal/) ou do Google Sites,
+    // o que esconde a faixa "Este aplicativo foi criado por um usuário...". O acesso continua exigindo senha.
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /** Inclui um arquivo HTML dentro do template (Styles / Scripts). */

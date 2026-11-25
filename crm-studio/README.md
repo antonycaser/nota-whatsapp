@@ -105,7 +105,13 @@ Variáveis disponíveis nos modelos: `{nome}` `{nomeCompleto}` `{servico}` `{dat
 ## Dúvidas comuns
 
 **Aparece "Este aplicativo foi criado por um usuário do Google Apps Script" no topo.**
-É um aviso padrão do Google em todo app feito com Apps Script. Não dá para remover.
+O Google mostra essa faixa quando o link `/exec` é aberto direto. Ela some quando o CRM é aberto dentro de outra página. Há duas formas:
+
+- **Portal próprio (recomendado):** a pasta [`portal/`](portal/) tem uma página pronta com a sua logo, que abre o CRM em tela cheia e instala no celular como aplicativo.
+  1. Abra `portal/index.html` num editor de texto e cole o seu link `/exec` na linha `var LINK_DO_APP = '...'`.
+  2. Entre em [app.netlify.com/drop](https://app.netlify.com/drop) e arraste a pasta `portal` inteira. Em segundos você recebe um link (dá para trocar o nome em *Site settings*).
+  3. Use esse link novo no lugar do `/exec` e adicione à tela inicial do celular.
+- **Google Sites:** crie um site em [sites.google.com](https://sites.google.com), use **Inserir → Incorporar → Por URL**, cole o link `/exec` e estique o quadro para ocupar a página toda.
 
 **Esqueci a senha.**
 No editor do Apps Script, rode a função **`redefinirSenhaAdmin`**. Uma nova senha provisória aparece no registro de execução.
@@ -143,6 +149,7 @@ crm-studio/
 │   ├── Styles.html       CSS (tema claro/escuro, responsivo)
 │   └── Scripts.html      front-end (SPA em JS puro + Chart.js + FullCalendar)
 ├── marca/              ← logos originais (circular e horizontal)
+├── portal/             ← página de entrada sem a faixa do Google + ícones para instalar no celular
 └── dev/                ← só para testar fora do Google
     ├── build-brand.py    gera Brand.html a partir das logos (troque os PNGs e rode de novo)
     ├── gas-mock.js       simulador dos serviços do Apps Script
