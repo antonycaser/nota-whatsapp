@@ -14,6 +14,7 @@ Portal web com senha, feito em **Google Apps Script**. Os dados ficam numa **pla
 | **Financeiro** | Receitas e despesas, contas a pagar e a receber, atrasados, despesas recorrentes (aluguel, MEI…) e exportação CSV. O atendimento finalizado entra no caixa sozinho, já descontando o sinal |
 | **Relatórios** | DRE simplificada, fluxo de caixa, faturamento por serviço e por categoria, comissões da equipe, formas de pagamento, top clientes, dias e horários mais movimentados. Exporta CSV e imprime |
 | **WhatsApp** | Confirmação ao agendar, lembrete 1 (ex.: 24h antes), lembrete 2 (ex.: 2h antes), pós-atendimento e aniversário. **Lê as respostas**: "1" confirma o horário e "2" marca pedido de remarcação. Modelos editáveis com prévia e horário de silêncio |
+| **Celular** | Funciona como aplicativo: barra inferior com botão **+** para agendar, agenda com dias para deslizar e horários livres clicáveis, atalhos rápidos, listas de toque e formulários em tela cheia. Dá para adicionar à tela inicial |
 | **Segurança** | Login com senha (hash + salt), sessão de 6h e bloqueio após 5 tentativas erradas. Perfis **Administradora** (vê tudo) e **Equipe** (só agenda e clientes) |
 
 Provedores de WhatsApp suportados: **Z-API**, **Evolution API**, **WhatsApp Cloud API (Meta)** e **webhook genérico** (n8n, Make…).

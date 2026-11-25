@@ -155,9 +155,9 @@ function toast(msg, tipo) {
 }
 const erroToast = e => toast((e && e.message) || String(e), 'err');
 
-function modal({ title, body, foot, wide, drawer, onMount, fixo }) {
+function modal({ title, body, foot, wide, drawer, onMount, fixo, sheet }) {
   const ov = document.createElement('div');
-  ov.className = 'overlay' + (drawer ? ' drawer' : '');
+  ov.className = 'overlay' + (drawer ? ' drawer' : '') + (sheet ? ' sheet' : '');
   ov.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">
     <div class="modal-head"><h2>${title || ''}</h2>${fixo ? '' : `<button class="icon-btn" data-close aria-label="Fechar">${ico('x')}</button>`}</div>
     <div class="modal-body">${body || ''}</div>
@@ -310,9 +310,10 @@ function montarShell() {
   const itens = NAV.filter(n => !n.admin || isAdmin());
   $('#nav').innerHTML = itens.map(n => (n.grupo ? `<div class="nav-label">${n.grupo}</div>` : '') +
     `<button class="nav-item" data-nav="${n.id}">${ico(n.ico)}<span>${n.label}</span></button>`).join('');
-  const bottom = ['dashboard', 'agenda', 'clientes', isAdmin() ? 'financeiro' : null].filter(Boolean);
-  $('#bottomNav').innerHTML = bottom.map(id => { const n = NAV.find(x => x.id === id); return `<button data-nav="${id}">${ico(n.ico)}<span>${n.label}</span></button>`; }).join('')
-    + `<button data-action="menu">${ico('more')}<span>Mais</span></button>`;
+  const tab = (id, label) => { const n = NAV.find(x => x.id === id); return `<button data-nav="${id}">${ico(n.ico)}<span>${label || n.label}</span></button>`; };
+  $('#bottomNav').innerHTML = tab('dashboard', 'Início') + tab('agenda')
+    + `<button class="fab" data-action="novo-ag" aria-label="Novo agendamento">${ico('plus')}</button>`
+    + tab('clientes') + `<button data-action="mais">${ico('more')}<span>Mais</span></button>`;
   if (montarShell.ok) return;
   montarShell.ok = true;
   document.addEventListener('click', e => {
@@ -324,16 +325,34 @@ function montarShell() {
     if (a === 'sair') sair();
     else if (a === 'tema') alternarTema();
     else if (a === 'menu') $('#shell').classList.toggle('menu-open');
+    else if (a === 'mais') menuMais();
+    else if (a === 'novo-ag') formAgendamento({});
   });
-  $('#menuBtn').addEventListener('click', () => $('#shell').classList.toggle('menu-open'));
+  $('#menuBtn').addEventListener('click', () => isMobile() ? menuMais() : $('#shell').classList.toggle('menu-open'));
+  $('#avatar').addEventListener('click', () => { if (isMobile()) menuMais(); });
   $('#scrim').addEventListener('click', () => $('#shell').classList.remove('menu-open'));
   $('#novoAgBtn').addEventListener('click', () => formAgendamento({}));
   montarBusca();
+}
+function menuMais() {
+  const itens = NAV.filter(n => (!n.admin || isAdmin()) && !['dashboard', 'agenda', 'clientes'].includes(n.id));
+  const m = modal({
+    title: `<span style="display:flex;align-items:center;gap:10px"><span class="avatar">${esc(iniciais(S.user.nome))}</span><span>${esc(S.user.nome)}<br><span class="tiny muted" style="font-weight:500">${isAdmin() ? 'Administradora' : 'Equipe'}</span></span></span>`,
+    sheet: true,
+    body: `<div class="menu-grid">${itens.map(n => `<button class="menu-tile ${S.page === n.id ? 'on' : ''}" data-ir="${n.id}">${ico(n.ico)}<span>${esc(n.label)}</span></button>`).join('')}
+      <button class="menu-tile" data-t="tema">${ico(temaAtual() === 'dark' ? 'sun' : 'moon')}<span>${temaAtual() === 'dark' ? 'Tema claro' : 'Tema escuro'}</span></button>
+      <button class="menu-tile" data-t="sair">${ico('logout')}<span>Sair</span></button></div>`
+  });
+  $$('[data-ir]', m.el).forEach(b => b.addEventListener('click', () => { m.close(); ir(b.dataset.ir); }));
+  $('[data-t=tema]', m.el).addEventListener('click', () => { m.close(); alternarTema(); });
+  $('[data-t=sair]', m.el).addEventListener('click', () => { m.close(); sair(); });
 }
 function ir(page) {
   S.page = page;
   $('#shell').classList.remove('menu-open');
   $$('[data-nav]').forEach(b => b.classList.toggle('active', b.dataset.nav === page));
+  const mais = $('[data-action=mais]');
+  if (mais) mais.classList.toggle('active', !['dashboard', 'agenda', 'clientes'].includes(page));
   render();
   window.scrollTo(0, 0);
 }
@@ -473,7 +492,13 @@ PAGES.dashboard = async el => {
       <div class="month-nav"><button class="icon-btn sm" data-mes="-1">${ico('left')}</button><span>${mesLabel(S.dashMes)}</span><button class="icon-btn sm" data-mes="1">${ico('right')}</button></div>
       ${atual ? '' : `<button class="btn sm ghost" data-mes="0">Voltar para o mês atual</button>`}
       <div class="spacer"></div>
-      <span class="muted tiny">${d.proximos7} horários nos próximos 7 dias</span>
+      <span class="muted tiny hide-sm">${d.proximos7} horários nos próximos 7 dias</span>
+    </div>
+    <div class="quick only-m">
+      <button data-q="ag"><span class="q-ico">${ico('calendar')}</span>Agendar</button>
+      <button data-q="cli"><span class="q-ico">${ico('userPlus')}</span>Nova cliente</button>
+      ${isAdmin() ? `<button data-q="rec"><span class="q-ico">${ico('up')}</span>Receita</button>
+      <button data-q="desp"><span class="q-ico">${ico('down')}</span>Despesa</button>` : `<button data-nav="agenda"><span class="q-ico">${ico('clock')}</span>Agenda</button>`}
     </div>
     <div class="kpis">${kpis}</div>
     <div class="grid cols-12">
@@ -506,6 +531,12 @@ PAGES.dashboard = async el => {
   ]);
   $$('[data-mes]', el).forEach(b => b.addEventListener('click', () => {
     const n = Number(b.dataset.mes); S.dashMes = n === 0 ? hoje().slice(0, 7) : addMes(S.dashMes, n); render();
+  }));
+  $$('[data-q]', el).forEach(b => b.addEventListener('click', () => {
+    const q = b.dataset.q;
+    if (q === 'ag') formAgendamento({});
+    else if (q === 'cli') formCliente({}, () => recarregarCadastros());
+    else formLancamento({ tipo: q === 'rec' ? 'receita' : 'despesa' });
   }));
   ligarAcoesLista(el, () => render());
 };
@@ -544,9 +575,11 @@ function ligarAcoesLista(el, depois) {
 
 /* ------------------------- Agenda ------------------------- */
 PAGES.agenda = async el => {
+  if (isMobile() && S.agendaModo !== 'calendario') return agendaMobile(el);
   const equipeAtiva = S.equipe.filter(p => p.ativo !== 'nao');
   el.innerHTML = `
     <div class="toolbar">
+      ${isMobile() ? `<button class="btn sm" id="bModoLista">${ico('left')}Lista do dia</button>` : ''}
       ${equipeAtiva.length ? `<select id="fProf" style="width:auto;min-width:180px"><option value="">Toda a equipe</option>${opts(equipeAtiva.map(p => ({ v: p.id, l: p.nome })), S.filtroProf)}</select>
       <label class="switch" style="margin:0"><input type="checkbox" id="fCorProf" ${S.corPorProf ? 'checked' : ''}><span class="tiny">Cores por profissional</span></label>` : ''}
       <div class="spacer"></div>
@@ -606,11 +639,122 @@ PAGES.agenda = async el => {
   });
   S.cal = cal;
   cal.render();
+  const bLista = $('#bModoLista');
+  if (bLista) bLista.addEventListener('click', () => { S.agendaModo = 'lista'; render(); });
   const fProf = $('#fProf');
   if (fProf) fProf.addEventListener('change', () => { S.filtroProf = fProf.value; cal.refetchEvents(); });
   const fCor = $('#fCorProf');
   if (fCor) fCor.addEventListener('change', () => { S.corPorProf = fCor.checked; cal.refetchEvents(); });
 };
+/** Agenda no celular: faixa de dias deslizável + lista do dia com horários livres. */
+async function agendaMobile(el) {
+  S.agDia = S.agDia || hoje();
+  if (!S.agBase || S.agDia < S.agBase || S.agDia > addDias(S.agBase, 34)) S.agBase = addDias(S.agDia, -7);
+  const base = S.agBase, fimStrip = addDias(base, 41);
+  const r = await call('agenda.listar', { inicio: base, fim: fimStrip, externos: true });
+  const equipeAtiva = S.equipe.filter(p => p.ativo !== 'nao');
+  const porDia = {}, ext = {};
+  r.agendamentos.forEach(a => { const k = a.inicio.slice(0, 10); (porDia[k] = porDia[k] || []).push(a); });
+  r.externos.forEach(x => { const k = x.inicio.slice(0, 10); (ext[k] = ext[k] || []).push(x); });
+  const dias = [];
+  for (let d = base; d <= fimStrip; d = addDias(d, 1)) dias.push(d);
+
+  el.innerHTML = `
+    <div class="ag-m-head">
+      <b id="agMes" style="text-transform:capitalize"></b>
+      <div class="actions-row">
+        <button class="btn sm" id="agHoje">Hoje</button>
+        <label class="btn sm" style="position:relative" title="Escolher data">${ico('calendar')}<input type="date" id="agPick" value="${S.agDia}" style="position:absolute;inset:0;opacity:0;width:100%;height:100%"></label>
+        <button class="btn sm" id="agCal" title="Ver calendário">${ico('dashboard')}</button>
+      </div>
+    </div>
+    <div class="day-strip" id="agStrip">${dias.map(d => {
+      const n = (porDia[d] || []).filter(a => a.status !== 'cancelado').length;
+      return `<button class="day-chip ${d === hoje() ? 'today' : ''}" data-dia="${d}"><span>${DIAS_ABREV[new Date(d + 'T12:00').getDay()]}</span><b>${Number(d.slice(8))}</b><i class="dots">${n ? '<em></em>'.repeat(Math.min(n, 3)) : ''}</i></button>`;
+    }).join('')}</div>
+    ${equipeAtiva.length > 1 ? `<div class="seg" id="agProf" style="margin:4px 0 12px"><button data-p="" class="${!S.filtroProf ? 'active' : ''}">Todas</button>${equipeAtiva.map(p => `<button data-p="${p.id}" class="${S.filtroProf === p.id ? 'active' : ''}">${esc(primeiroNome(p.nome))}</button>`).join('')}</div>` : ''}
+    <div id="agDiaInfo" class="muted tiny" style="margin:4px 2px 10px"></div>
+    <div id="agLista"></div>`;
+
+  const minutos = h => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
+  const hhmm = m => pad(Math.floor(m / 60)) + ':' + pad(m % 60);
+
+  function cardAg(a) {
+    const podeFinalizar = !['concluido', 'cancelado'].includes(a.status);
+    return `<div class="ag-card st-x-${a.status}" data-ag="${a.id}">
+      <div class="ag-time"><b>${fHora(a.inicio)}</b><span>${fHora(a.fim)}</span></div>
+      <div class="ag-body" style="border-left-color:${esc(a.cor)}">
+        <div class="ag-top"><div class="title">${esc(a.clienteNome)}</div>${pill(a.status)}</div>
+        <div class="sub">${esc(a.servicoNomes)}</div>
+        <div class="sub">${a.profissionalNome ? esc(a.profissionalNome) + ' · ' : ''}${brl(a.valor - (a.desconto || 0))}${a.local && a.local !== 'Studio' ? ' · 📍' + esc(a.local) : ''}</div>
+        <div class="ag-actions">
+          ${a.status === 'agendado' || a.status === 'remarcar' ? `<button class="btn sm" data-acao="confirmado" data-id="${a.id}">${ico('check')}Confirmar</button>` : ''}
+          ${podeFinalizar ? `<button class="btn sm primary" data-fin="${a.id}">${ico('heart')}Finalizar</button>` : ''}
+          ${a.telefone ? `<a class="btn sm wa" target="_blank" href="${waLink(a.telefone)}" data-stop aria-label="WhatsApp">${ico('send')}</a>` : ''}
+        </div></div></div>`;
+  }
+
+  const desenhar = () => {
+    const dia = S.agDia;
+    $$('.day-chip', el).forEach(c => c.classList.toggle('on', c.dataset.dia === dia));
+    $('#agMes').textContent = MESES[Number(dia.slice(5, 7)) - 1] + ' ' + dia.slice(0, 4);
+    const lista = (porDia[dia] || []).filter(a => !S.filtroProf || !a.profissionalId || a.profissionalId === S.filtroProf);
+    const ativos = lista.filter(a => a.status !== 'cancelado');
+    const total = ativos.reduce((t, a) => t + a.valor - (a.desconto || 0), 0);
+    $('#agDiaInfo').innerHTML = `<b style="color:var(--text);text-transform:capitalize">${diaSemana(dia)}, ${fData(dia)}</b> · ${ativos.length} horário(s)${isAdmin() && total ? ' · previsto ' + brl(total) : ''}`;
+
+    // linha do tempo: atendimentos, compromissos pessoais e janelas livres
+    const itens = lista.map(a => ({ t: 'ag', ini: minutos(fHora(a.inicio)), fim: minutos(fHora(a.fim)), a }))
+      .concat((ext[dia] || []).filter(x => !x.diaTodo).map(x => ({ t: 'ext', ini: minutos(fHora(x.inicio)), fim: minutos(fHora(x.fim)), x })))
+      .sort((p, q) => p.ini - q.ini);
+    const abre = minutos(S.cfg.horaAbertura || '08:00'), fecha = minutos(S.cfg.horaFechamento || '20:00');
+    const agora = new Date();
+    const agoraMin = dia === hoje() ? Math.ceil((agora.getHours() * 60 + agora.getMinutes()) / 15) * 15 : (dia < hoje() ? 99999 : 0);
+    const out = [];
+    let cursor = Math.max(abre, agoraMin);
+    const livre = (de, ate) => {
+      ate = Math.min(ate, fecha);
+      if (ate - de >= 30) out.push(`<button class="slot-free" data-hora="${hhmm(de)}"><span>${hhmm(de)} – ${hhmm(ate)}</span><b>${ico('plus')}Livre · agendar</b></button>`);
+    };
+    itens.forEach(it => {
+      if (it.t === 'ag' && it.a.status === 'cancelado') { out.push(cardAg(it.a)); return; }
+      livre(cursor, it.ini);
+      cursor = Math.max(cursor, it.fim);
+      out.push(it.t === 'ag' ? cardAg(it.a)
+        : `<div class="ag-card ext"><div class="ag-time"><b>${hhmm(it.ini)}</b><span>${hhmm(it.fim)}</span></div><div class="ag-body"><div class="title">🔒 ${esc(it.x.titulo)}</div><div class="sub">Compromisso do seu Google Agenda</div></div></div>`);
+    });
+    livre(cursor, fecha);
+    $('#agLista').innerHTML = out.length ? out.join('')
+      : `<div class="empty"><div class="big">🌿</div>${dia < hoje() ? 'Nenhum atendimento neste dia.' : 'Agenda cheia ou fora do horário de funcionamento.'}</div>`;
+  };
+
+  const recarregar = () => render();
+  $('#agLista').addEventListener('click', async e => {
+    if (e.target.closest('[data-stop]')) return;
+    const slot = e.target.closest('[data-hora]');
+    if (slot) return formAgendamento({ data: S.agDia, hora: slot.dataset.hora }, recarregar);
+    const fin = e.target.closest('[data-fin]');
+    if (fin) return finalizarAtendimento(r.agendamentos.find(x => x.id === fin.dataset.fin), recarregar);
+    const acao = e.target.closest('[data-acao]');
+    if (acao) {
+      return busy(acao, async () => {
+        try { await call('agenda.status', { id: acao.dataset.id, status: acao.dataset.acao }); toast('Horário confirmado ✅'); recarregar(); } catch (err) { erroToast(err); }
+      });
+    }
+    const card = e.target.closest('[data-ag]');
+    if (card) detalheAgendamento(card.dataset.ag, recarregar);
+  });
+  const centralizar = (d, suave) => { const c = $(`[data-dia="${d}"]`, el); if (c) c.scrollIntoView({ inline: 'center', block: 'nearest', behavior: suave ? 'smooth' : 'auto' }); };
+  $('#agStrip').addEventListener('click', e => { const c = e.target.closest('[data-dia]'); if (c) { S.agDia = c.dataset.dia; desenhar(); centralizar(S.agDia, true); } });
+  $('#agHoje').addEventListener('click', () => { S.agDia = hoje(); if (hoje() < base || hoje() > fimStrip) return render(); desenhar(); centralizar(S.agDia, true); });
+  $('#agPick').addEventListener('change', e => { if (!e.target.value) return; S.agDia = e.target.value; render(); });
+  $('#agCal').addEventListener('click', () => { S.agendaModo = 'calendario'; render(); });
+  $$('#agProf button', el).forEach(b => b.addEventListener('click', () => { S.filtroProf = b.dataset.p; $$('#agProf button', el).forEach(x => x.classList.toggle('active', x === b)); desenhar(); }));
+  desenhar();
+  centralizar(S.agDia, false);
+  window.scrollTo(0, 0);
+}
+
 async function moverEvento(info, toLocal) {
   const a = info.event.extendedProps.a;
   const ini = toLocal(info.event.start), fim = toLocal(info.event.end || info.event.start);
@@ -899,28 +1043,38 @@ PAGES.clientes = async el => {
   };
   el.innerHTML = `
     <div class="toolbar">
-      <div class="search-global" style="display:flex"><span class="ico" data-ico="search"></span><input id="cliQ" placeholder="Buscar por nome, telefone ou tag…" style="width:280px"></div>
+      <div class="search-global" style="display:flex"><span class="ico" data-ico="search"></span><input id="cliQ" type="search" placeholder="Buscar por nome, telefone ou tag…" style="width:280px"></div>
       <div class="seg" id="cliSeg">${[['todas', 'Todas'], ['agendadas', 'Com horário'], ['aniversario', 'Aniversariantes'], ['inativas', 'Para reativar'], ['novas', 'Novas']].map(([k, l]) => `<button data-f="${k}" class="${S.cliFiltro === k ? 'active' : ''}">${l}</button>`).join('')}</div>
       <div class="spacer"></div>
       <button class="btn primary" id="bNovaCli">${ico('userPlus')}Nova cliente</button>
     </div>
-    <div class="card"><div class="table-wrap"><table class="tbl responsive"><thead><tr>
-      <th>Cliente</th><th>WhatsApp</th><th>Última visita</th><th class="num">Visitas</th>${isAdmin() ? '<th class="num">Total gasto</th>' : ''}<th>Próximo horário</th></tr></thead>
-      <tbody id="cliBody"></tbody></table></div></div>`;
+    <div class="card" id="cliBody"></div>`;
   hydrateIcons(el);
   const body = $('#cliBody');
   const desenhar = () => {
     const q = $('#cliQ').value.trim().toLowerCase(), qd = q.replace(/\D/g, '');
     const rows = lista.filter(filtros[S.cliFiltro]).filter(c => !q || String(c.nome).toLowerCase().includes(q) || String(c.tags).toLowerCase().includes(q) || (qd.length >= 3 && String(c.telefone).includes(qd)));
-    body.innerHTML = rows.length ? rows.map(c => `<tr class="click" data-cli="${c.id}">
+    if (isMobile()) {
+      body.innerHTML = rows.length ? `<div class="m-list">${rows.map(c => `<div class="m-item" data-cli="${c.id}">
+        <div class="avatar">${esc(iniciais(c.nome))}</div>
+        <div class="grow"><div class="title">${esc(c.nome)}</div>
+          <div class="sub">${c.visitas} visita(s)${c.ultimaVisita ? ' · última ' + fDataCurta(c.ultimaVisita) : ''}${c.tags ? ' · ' + esc(c.tags) : ''}</div>
+          ${c.proxima ? `<div style="margin-top:5px"><span class="pill st-agendado">${fDataCurta(c.proxima)} às ${fHora(c.proxima)}</span></div>` : ''}</div>
+        ${c.telefone ? `<a class="round-btn wa" href="${waLink(c.telefone)}" target="_blank" data-stop aria-label="WhatsApp">${ico('send')}</a>` : ''}</div>`).join('')}</div>`
+        : `<div class="empty"><div class="big">🔍</div>Nenhuma cliente encontrada.</div>`;
+      return;
+    }
+    body.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr>
+      <th>Cliente</th><th>WhatsApp</th><th>Última visita</th><th class="num">Visitas</th>${isAdmin() ? '<th class="num">Total gasto</th>' : ''}<th>Próximo horário</th></tr></thead><tbody>`
+      + (rows.length ? rows.map(c => `<tr class="click" data-cli="${c.id}">
       <td data-l="Cliente" class="main"><div style="display:flex;align-items:center;gap:10px"><div class="avatar" style="width:34px;height:34px;font-size:12px">${esc(iniciais(c.nome))}</div>
-        <div style="text-align:left"><div style="font-weight:600">${esc(c.nome)}</div><div class="tiny muted">${c.instagram ? esc(c.instagram) + ' · ' : ''}${String(c.tags || '').split(',').filter(Boolean).map(t => esc(t.trim())).join(' · ')}</div></div></div></td>
+        <div style="text-align:left"><div style="font-weight:600">${esc(c.nome)}</div><div class="tiny muted">${[c.instagram].concat(String(c.tags || '').split(',')).map(t => String(t || '').trim()).filter(Boolean).map(esc).join(' · ')}</div></div></div></td>
       <td data-l="WhatsApp" class="nowrap">${c.telefone ? `<a href="${waLink(c.telefone)}" target="_blank" data-stop>${esc(foneFmt(c.telefone))}</a>` : '<span class="muted">—</span>'}</td>
       <td data-l="Última visita" class="hide-m">${c.ultimaVisita ? fData(c.ultimaVisita) : '<span class="muted">—</span>'}</td>
       <td data-l="Visitas" class="num hide-m">${c.visitas}</td>
       ${isAdmin() ? `<td data-l="Total gasto" class="num hide-m">${brl(c.totalGasto)}</td>` : ''}
       <td data-l="Próximo">${c.proxima ? `<span class="pill st-agendado">${fDataCurta(c.proxima)} ${fHora(c.proxima)}</span>` : '<span class="muted">—</span>'}</td></tr>`).join('')
-      : `<tr><td colspan="6"><div class="empty"><div class="big">🔍</div>Nenhuma cliente encontrada.</div></td></tr>`;
+      : `<tr><td colspan="6"><div class="empty"><div class="big">🔍</div>Nenhuma cliente encontrada.</div></td></tr>`) + '</tbody></table></div>';
   };
   $('#cliQ').addEventListener('input', debounce(desenhar, 120));
   $$('#cliSeg button').forEach(b => b.addEventListener('click', () => { S.cliFiltro = b.dataset.f; $$('#cliSeg button').forEach(x => x.classList.toggle('active', x === b)); desenhar(); }));
@@ -1132,24 +1286,41 @@ PAGES.financeiro = async el => {
     </div>
     <div class="grid cols-12">
       <div class="card span-8"><div class="card-head"><h3>Lançamentos</h3><button class="btn sm ghost" id="bCsvFin">${ico('download')}CSV</button></div>
-        <div class="table-wrap"><table class="tbl responsive"><thead><tr><th>Data</th><th>Descrição</th><th>Forma</th><th>Status</th><th class="num">Valor</th><th></th></tr></thead><tbody id="finBody"></tbody></table></div></div>
+        <div id="finBody"></div></div>
       <div class="card span-4"><div class="card-head"><div><h3>Para onde foi o dinheiro</h3><div class="sub">Despesas pagas por categoria</div></div></div>
         <div class="card-body">${despItens.length ? `<div class="chart-box sm"><canvas id="chDesp"></canvas></div>${donutLegend(despItens)}` : '<div class="empty">Nenhuma despesa paga neste mês.</div>'}</div></div>
     </div>`;
   const body = $('#finBody');
   const desenhar = () => {
     const rows = r.lancamentos.filter(filtros[S.finFiltro]);
-    body.innerHTML = rows.length ? rows.map(l => {
-      const st = l.status === 'pago' ? 'pago' : l.atrasado ? 'atrasado' : 'pendente';
-      const d = l.status === 'pendente' && l.vencimento ? l.vencimento : l.data;
-      return `<tr><td data-l="Data" class="nowrap">${fDataCurta(d)}</td>
-        <td data-l="Descrição" class="desc"><div style="font-weight:600">${esc(l.descricao || l.categoria)}</div><div class="tiny muted">${esc(l.categoria)}${l.clienteNome ? ' · ' + esc(l.clienteNome) : ''}</div></td>
-        <td data-l="Forma">${esc(l.forma || '—')}</td>
-        <td data-l="Status">${pill(st, st === 'pago' ? (l.tipo === 'receita' ? 'Recebido' : 'Pago') : st === 'atrasado' ? 'Atrasado' : 'Pendente')}</td>
-        <td data-l="Valor" class="num ${l.tipo === 'receita' ? 'pos' : 'neg'}" style="font-weight:700">${l.tipo === 'receita' ? '+' : '−'} ${brl(l.valor)}</td>
+    const stDe = l => l.status === 'pago' ? 'pago' : l.atrasado ? 'atrasado' : 'pendente';
+    const stLabel = (l, st) => st === 'pago' ? (l.tipo === 'receita' ? 'Recebido' : 'Pago') : st === 'atrasado' ? 'Atrasado' : 'Pendente';
+    const dataDe = l => l.status === 'pendente' && l.vencimento ? l.vencimento : l.data;
+    if (!rows.length) { body.innerHTML = `<div class="empty"><div class="big">🧾</div>Nenhum lançamento neste filtro.</div>`; return; }
+    if (isMobile()) {
+      let ultimo = '';
+      body.innerHTML = '<div class="m-list">' + rows.map(l => {
+        const st = stDe(l), d = dataDe(l);
+        const cab = d !== ultimo ? `<div class="m-group">${diaSemana(d)}, ${fDataCurta(d)}</div>` : '';
+        ultimo = d;
+        return cab + `<div class="m-item" data-edit="${l.id}">
+          <div class="m-ico ${l.tipo === 'receita' ? 'up' : 'down'}">${ico(l.tipo === 'receita' ? 'up' : 'down')}</div>
+          <div class="grow"><div class="title">${esc(l.descricao || l.categoria)}</div><div class="sub">${esc(l.categoria)}${l.forma ? ' · ' + esc(l.forma) : ''}</div></div>
+          <div class="m-right"><div class="num ${l.tipo === 'receita' ? 'pos' : 'neg'}" style="font-weight:700">${l.tipo === 'receita' ? '+' : '−'} ${brl(l.valor)}</div>
+            ${l.status === 'pendente' ? `<button class="btn sm" data-pagar="${l.id}">${l.tipo === 'receita' ? 'Recebi' : 'Paguei'}</button>` : pill(st, stLabel(l, st))}</div></div>`;
+      }).join('') + '</div>';
+      return;
+    }
+    body.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Descrição</th><th>Forma</th><th>Status</th><th class="num">Valor</th><th></th></tr></thead><tbody>` + rows.map(l => {
+      const st = stDe(l), d = dataDe(l);
+      return `<tr><td class="nowrap">${fDataCurta(d)}</td>
+        <td class="desc"><div style="font-weight:600">${esc(l.descricao || l.categoria)}</div><div class="tiny muted">${esc(l.categoria)}${l.clienteNome ? ' · ' + esc(l.clienteNome) : ''}</div></td>
+        <td>${esc(l.forma || '—')}</td>
+        <td>${pill(st, stLabel(l, st))}</td>
+        <td class="num ${l.tipo === 'receita' ? 'pos' : 'neg'}" style="font-weight:700">${l.tipo === 'receita' ? '+' : '−'} ${brl(l.valor)}</td>
         <td class="nowrap right">${l.status === 'pendente' ? `<button class="btn sm" data-pagar="${l.id}">${ico('check')}${l.tipo === 'receita' ? 'Recebi' : 'Paguei'}</button>` : ''}
           <button class="icon-btn sm" data-edit="${l.id}" title="Editar">${ico('edit')}</button><button class="icon-btn sm" data-del="${l.id}" title="Excluir">${ico('trash')}</button></td></tr>`;
-    }).join('') : `<tr><td colspan="6"><div class="empty"><div class="big">🧾</div>Nenhum lançamento neste filtro.</div></td></tr>`;
+    }).join('') + '</tbody></table></div>';
   };
   desenhar();
   if (despItens.length) donutChart($('#chDesp'), despItens.map(x => x.nome), despItens.map(x => x.valor));
@@ -1191,9 +1362,14 @@ function formLancamento(l) {
       </div>
       ${l.id ? '' : `<label class="field"><span>Repetir nos próximos meses</span><select name="repetir">${opts([{ v: 0, l: 'Não repetir' }, { v: 2, l: '+2 meses' }, { v: 5, l: '+5 meses' }, { v: 11, l: '+11 meses (1 ano)' }], 0)}</select><small>Ideal para aluguel, internet, MEI… (cria como pendentes)</small></label>`}
     </form>`,
-    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="bLan">Salvar</button>`
+    foot: `${l.id ? `<button class="btn sm ghost danger left" data-del>${ico('trash')}Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="bLan">Salvar</button>`
   });
   const f = $('#fLan', m.el);
+  const del = $('[data-del]', m.el);
+  if (del) del.addEventListener('click', async () => {
+    if (!(await confirmar('Excluir este lançamento?', { ok: 'Excluir', perigo: true }))) return;
+    try { await call('fin.excluir', { id: l.id }); m.close(); toast('Lançamento excluído'); if (S.page === 'financeiro') render(); } catch (err) { erroToast(err); }
+  });
   const vis = () => { $('#lanVenc', m.el).style.display = f.status.value === 'pendente' ? '' : 'none'; };
   f.status.addEventListener('change', vis); vis();
   $$('#segTipo button', m.el).forEach(b => b.addEventListener('click', () => {
