@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title><?= studioNome ?> · CRM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <!-- LOGIN -->
+  <section id="login" class="login hidden">
+    <div class="login-art" aria-hidden="true">
+      <div class="login-art-inner">
+        <div class="brand-mark big">✦</div>
+        <h2>Beleza organizada,<br>agenda sempre cheia.</h2>
+        <p>Agenda integrada ao Google, lembretes automáticos no WhatsApp e o financeiro do seu studio em um só lugar.</p>
+        <ul class="login-points">
+          <li>Maquiagem · Sobrancelha · Penteado</li>
+          <li>Lembretes que reduzem faltas</li>
+          <li>Relatórios claros, sem planilha bagunçada</li>
+        </ul>
+      </div>
+    </div>
+    <div class="login-box">
+      <form id="loginForm" class="login-card" autocomplete="on">
+        <div class="brand"><span class="brand-mark">✦</span><span class="brand-name"><?= studioNome ?></span></div>
+        <h1>Bem-vinda de volta</h1>
+        <p class="muted">Entre com seu usuário e senha para acessar o portal.</p>
+        <label class="field"><span>Usuário</span>
+          <input name="usuario" autocomplete="username" required autocapitalize="none" spellcheck="false" placeholder="admin">
+        </label>
+        <label class="field"><span>Senha</span>
+          <div class="pass-wrap">
+            <input name="senha" type="password" autocomplete="current-password" required placeholder="••••••••">
+            <button type="button" class="pass-eye" data-eye aria-label="Mostrar senha">👁</button>
+          </div>
+        </label>
+        <div id="loginErro" class="form-error hidden" role="alert"></div>
+        <button class="btn primary block lg" type="submit" id="loginBtn">Entrar</button>
+        <p class="tiny muted center">Acesso protegido · sessão expira após 6h sem uso</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- APP -->
+  <div id="shell" class="shell hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand"><span class="brand-mark">✦</span><span class="brand-name" id="brandName"><?= studioNome ?></span></div>
+      <nav id="nav" class="nav"></nav>
+      <div class="sidebar-foot">
+        <button class="nav-item" data-action="tema"><span class="ico" data-ico="moon"></span><span>Tema</span></button>
+        <button class="nav-item" data-action="sair"><span class="ico" data-ico="logout"></span><span>Sair</span></button>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="menuBtn" aria-label="Menu"><span class="ico" data-ico="menu"></span></button>
+        <div class="topbar-title">
+          <h1 id="pageTitle">Painel</h1>
+          <p id="pageSub" class="muted"></p>
+        </div>
+        <div class="topbar-actions">
+          <div class="search-global">
+            <span class="ico" data-ico="search"></span>
+            <input id="buscaGlobal" placeholder="Buscar cliente…" autocomplete="off">
+            <div id="buscaResultados" class="dropdown hidden"></div>
+          </div>
+          <button class="btn primary" id="novoAgBtn"><span class="ico" data-ico="plus"></span><span class="hide-sm">Agendar</span></button>
+          <div class="avatar" id="avatar" title=""></div>
+        </div>
+      </header>
+      <div id="page" class="page"></div>
+    </main>
+    <nav class="bottom-nav" id="bottomNav"></nav>
+  </div>
+
+  <div id="boot" class="boot"><div class="spinner"></div></div>
+  <div id="modalRoot"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.15/locales/pt-br.global.min.js"></script>
+  <?!= include('Scripts'); ?>
+</body>
+</html>

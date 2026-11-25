@@ -1,0 +1,283 @@
+/**
+ * Agenda: agendamentos + sincronização automática com o Google Agenda.
+ * Tudo que é marcado/alterado/cancelado no CRM é refletido na agenda.
+ *
+ * Status: agendado | confirmado | concluido | faltou | cancelado | remarcar
+ */
+
+var STATUS_ATIVOS = ['agendado', 'confirmado', 'remarcar'];
+var STATUS_EMOJI = { agendado: '🗓️', confirmado: '✅', concluido: '💖', faltou: '⚠️', remarcar: '🔁', cancelado: '❌' };
+
+function ag_view_(a, mapas) {
+  var cli = mapas.clientes[a.clienteId] || {};
+  var prof = mapas.equipe[a.profissionalId] || {};
+  var servs = json_(a.servicos, []);
+  return {
+    id: a.id, clienteId: a.clienteId, clienteNome: cli.nome || a.clienteNome, telefone: cli.telefone || a.telefone,
+    servicos: servs, servicoNomes: a.servicoNomes, categoria: (servs[0] && servs[0].categoria) || '',
+    cor: (prof.cor && mapas.porProfissional) ? prof.cor : ((servs[0] && servs[0].cor) || '#c2457a'),
+    profissionalId: a.profissionalId, profissionalNome: prof.nome || '',
+    inicio: a.inicio.slice(0, 16), fim: a.fim.slice(0, 16), status: a.status,
+    valor: num_(a.valor), desconto: num_(a.desconto), sinal: num_(a.sinal),
+    local: a.local, observacoes: a.observacoes, syncStatus: a.syncStatus,
+    confirmEnviada: a.confirmEnviada, lembrete1Enviado: a.lembrete1Enviado, lembrete2Enviado: a.lembrete2Enviado,
+    formaPagamento: a.formaPagamento, lancamentoId: a.lancamentoId
+  };
+}
+
+function ag_mapas_() {
+  var m = { clientes: {}, equipe: {}, servicos: {} };
+  db_all_('Clientes').forEach(function (c) { m.clientes[c.id] = c; });
+  db_all_('Profissionais').forEach(function (p) { m.equipe[p.id] = p; });
+  db_all_('Servicos').forEach(function (s) { m.servicos[s.id] = s; });
+  return m;
+}
+
+/** Lista agendamentos entre p.inicio e p.fim (yyyy-MM-dd, fim inclusivo). */
+function ag_listar_(p) {
+  var ini = String(p.inicio || hoje_()).slice(0, 10);
+  var fim = String(p.fim || ini).slice(0, 10);
+  var mapas = ag_mapas_();
+  mapas.porProfissional = !!p.corPorProfissional;
+  var lista = db_all_('Agendamentos').filter(function (a) {
+    var d = String(a.inicio).slice(0, 10);
+    return d >= ini && d <= fim && (p.incluirCancelados || a.status !== 'cancelado');
+  }).map(function (a) { return ag_view_(a, mapas); })
+    .sort(function (a, b) { return a.inicio < b.inicio ? -1 : 1; });
+
+  var externos = [];
+  var c = cfg_();
+  if (p.externos && c.calendarAtivo && c.mostrarEventosGoogle) {
+    try {
+      var ids = {};
+      db_all_('Agendamentos').forEach(function (a) { if (a.eventId) ids[a.eventId] = 1; });
+      var cal = cal_();
+      var evs = cal.getEvents(parseLocal_(ini), new Date(parseLocal_(fim).getTime() + 86400000));
+      evs.forEach(function (ev) {
+        if (ids[ev.getId()]) return;
+        externos.push({
+          id: ev.getId(), titulo: ev.getTitle(), diaTodo: ev.isAllDayEvent(),
+          inicio: fmtLocal_(ev.getStartTime()), fim: fmtLocal_(ev.getEndTime())
+        });
+      });
+    } catch (e) { console.warn('Eventos externos: ' + e); }
+  }
+  return { agendamentos: lista, externos: externos };
+}
+
+function ag_obter_(p) {
+  var a = db_get_('Agendamentos', p.id);
+  if (!a) throw erro_('Agendamento não encontrado.');
+  return ag_view_(a, ag_mapas_());
+}
+
+/**
+ * Cria ou altera um agendamento.
+ * p: {id?, clienteId | novaCliente{nome,telefone}, servicoIds[], profissionalId, data, hora,
+ *     duracao?, valor?, desconto?, sinal?, formaSinal?, local, observacoes, status, enviarConfirmacao, forcar}
+ */
+function ag_salvar_(p) {
+  var mapas = ag_mapas_();
+  var c = cfg_();
+
+  // Cliente
+  var clienteId = p.clienteId;
+  if (!clienteId && p.novaCliente && p.novaCliente.nome) {
+    clienteId = cli_salvar_({ nome: p.novaCliente.nome, telefone: p.novaCliente.telefone, forcar: true }).id;
+    mapas = ag_mapas_();
+  }
+  var cli = mapas.clientes[clienteId];
+  if (!cli) throw erro_('Selecione a cliente.');
+
+  // Serviços
+  var ids = (p.servicoIds || []).filter(String);
+  if (!ids.length) throw erro_('Selecione pelo menos um serviço.');
+  var servs = ids.map(function (id) {
+    var s = mapas.servicos[id];
+    if (!s) throw erro_('Serviço não encontrado.');
+    return { id: s.id, nome: s.nome, categoria: s.categoria, preco: num_(s.preco), duracao: num_(s.duracao), cor: s.cor };
+  });
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.data || '') || !/^\d{2}:\d{2}$/.test(p.hora || '')) throw erro_('Informe data e horário.');
+  var duracao = Math.round(num_(p.duracao)) || servs.reduce(function (s, x) { return s + x.duracao; }, 0) || 60;
+  var inicio = p.data + 'T' + p.hora;
+  var fim = addMin_(inicio, duracao);
+  var valor = (p.valor !== undefined && p.valor !== '') ? round2_(num_(p.valor)) : servs.reduce(function (s, x) { return s + x.preco; }, 0);
+
+  // Conflito de horário (mesma profissional, ou geral se não houver equipe)
+  if (!p.forcar) {
+    var conflitos = db_all_('Agendamentos').filter(function (a) {
+      if (a.id === p.id || STATUS_ATIVOS.indexOf(a.status) < 0) return false;
+      if (p.profissionalId && a.profissionalId && a.profissionalId !== p.profissionalId) return false;
+      return a.inicio.slice(0, 16) < fim && a.fim.slice(0, 16) > inicio;
+    });
+    if (conflitos.length) {
+      var x = conflitos[0];
+      throw erro_('Esse horário conflita com ' + (x.clienteNome || 'outra cliente') + ' (' +
+        x.inicio.slice(11, 16) + '–' + x.fim.slice(11, 16) + '). Deseja agendar mesmo assim?', { conflito: true });
+    }
+  }
+
+  var dados = {
+    clienteId: cli.id, clienteNome: cli.nome, telefone: cli.telefone,
+    servicos: JSON.stringify(servs), servicoNomes: servs.map(function (s) { return s.nome; }).join(' + '),
+    profissionalId: p.profissionalId || '', inicio: inicio, fim: fim,
+    valor: valor, desconto: round2_(num_(p.desconto)), sinal: round2_(num_(p.sinal)),
+    local: p.local || 'Studio', observacoes: p.observacoes || ''
+  };
+
+  var antigo = p.id ? db_get_('Agendamentos', p.id) : null;
+  var a;
+  if (antigo) {
+    dados.status = p.status || antigo.status;
+    if (antigo.inicio.slice(0, 16) !== inicio) {
+      // remarcou: zera os lembretes para reenviar no novo horário
+      dados.lembrete1Enviado = ''; dados.lembrete2Enviado = '';
+      if (dados.status === 'remarcar') dados.status = 'agendado';
+    }
+    a = db_update_('Agendamentos', antigo.id, dados);
+  } else {
+    dados.status = p.status || 'agendado';
+    a = db_insert_('Agendamentos', dados);
+  }
+
+  // Sinal / reserva → lançamento de receita
+  if (dados.sinal > 0 && !(antigo && num_(antigo.sinal) === dados.sinal)) {
+    fin_sinal_(a, p.formaSinal || 'Pix');
+  }
+
+  a = ag_sync_(a);
+
+  // Confirmação por WhatsApp (somente em agendamentos novos)
+  var aviso = '';
+  if (!antigo && p.enviarConfirmacao && c.wa.ativo && c.wa.confirmacao && cli.telefone) {
+    try {
+      wa_enviarAg_('confirmacao', a);
+      a = db_update_('Agendamentos', a.id, { confirmEnviada: agora_() });
+    } catch (e) { aviso = 'Agendado, mas o WhatsApp falhou: ' + e.message; }
+  }
+  if (String(a.syncStatus).indexOf('erro') === 0) aviso = (aviso ? aviso + ' | ' : '') + 'Google Agenda: ' + a.syncStatus;
+
+  var v = ag_view_(a, ag_mapas_());
+  v.aviso = aviso;
+  return v;
+}
+
+/** Muda o status (confirmar, faltou, cancelar, remarcar, agendado). */
+function ag_status_(p) {
+  var validos = ['agendado', 'confirmado', 'faltou', 'cancelado', 'remarcar', 'concluido'];
+  if (validos.indexOf(p.status) < 0) throw erro_('Status inválido.');
+  var a = db_get_('Agendamentos', p.id);
+  if (!a) throw erro_('Agendamento não encontrado.');
+  a = db_update_('Agendamentos', a.id, { status: p.status });
+  a = ag_sync_(a);
+  return ag_view_(a, ag_mapas_());
+}
+
+/** Finaliza o atendimento e lança a receita no financeiro. */
+function ag_finalizar_(p) {
+  var a = db_get_('Agendamentos', p.id);
+  if (!a) throw erro_('Agendamento não encontrado.');
+  var valor = round2_(num_(p.valor !== undefined ? p.valor : a.valor));
+  var desconto = round2_(num_(p.desconto !== undefined ? p.desconto : a.desconto));
+  var forma = p.forma || 'Pix';
+  a = db_update_('Agendamentos', a.id, { status: 'concluido', valor: valor, desconto: desconto, formaPagamento: forma });
+  var lanc = fin_doAtendimento_(a, forma, p.pago !== false);
+  a = db_update_('Agendamentos', a.id, { lancamentoId: lanc ? lanc.id : '' });
+  a = ag_sync_(a);
+  return ag_view_(a, ag_mapas_());
+}
+
+function ag_excluir_(p) {
+  var a = db_get_('Agendamentos', p.id);
+  if (!a) return true;
+  if (a.eventId) { try { var ev = cal_().getEventById(a.eventId); if (ev) ev.deleteEvent(); } catch (e) {} }
+  db_all_('Financeiro').forEach(function (l) {
+    if (l.agendamentoId === a.id && l.status !== 'pago') db_delete_('Financeiro', l.id);
+  });
+  db_delete_('Agendamentos', a.id);
+  return true;
+}
+
+/** Reenvia para o Google Agenda todos os horários futuros (útil após trocar de agenda). */
+function ag_ressincronizar_() {
+  var desde = hoje_();
+  var n = 0, erros = 0;
+  db_all_('Agendamentos').forEach(function (a) {
+    if (a.inicio.slice(0, 10) < desde) return;
+    var r = ag_sync_(a);
+    if (String(r.syncStatus).indexOf('erro') === 0) erros++; else n++;
+  });
+  return { sincronizados: n, erros: erros };
+}
+
+/* ------------------------- Google Agenda ------------------------- */
+
+function cal_() {
+  var id = cfg_().calendarId;
+  if (!id || id === 'primary') return CalendarApp.getDefaultCalendar();
+  return CalendarApp.getCalendarById(id);
+}
+
+var COR_CATEGORIA = {
+  'Maquiagem': 'MAUVE', 'Sobrancelha': 'YELLOW', 'Penteado': 'PALE_BLUE', 'Cílios': 'CYAN',
+  'Noivas & Eventos': 'RED', 'Outros': 'GRAY'
+};
+
+/** Cria/atualiza/remove o evento na agenda. Nunca lança erro — grava syncStatus. */
+function ag_sync_(a) {
+  var c = cfg_();
+  if (!c.calendarAtivo) return a;
+  var patch = {};
+  try {
+    var cal = cal_();
+    if (!cal) throw new Error('agenda não encontrada');
+    var ev = null;
+    if (a.eventId) { try { ev = cal.getEventById(a.eventId); } catch (e) { ev = null; } }
+
+    if (a.status === 'cancelado') {
+      if (ev) ev.deleteEvent();
+      patch = { eventId: '', syncStatus: 'removido' };
+    } else {
+      var cli = db_get_('Clientes', a.clienteId) || {};
+      var prof = db_get_('Profissionais', a.profissionalId) || {};
+      var servs = json_(a.servicos, []);
+      var titulo = (STATUS_EMOJI[a.status] || '') + ' ' + (cli.nome || a.clienteNome) + ' — ' + a.servicoNomes;
+      var tel = cli.telefone || a.telefone;
+      var total = num_(a.valor) - num_(a.desconto);
+      var desc = [
+        '👤 Cliente: ' + (cli.nome || a.clienteNome),
+        tel ? '📱 WhatsApp: https://wa.me/' + tel : '',
+        '✨ Serviços: ' + a.servicoNomes,
+        prof.nome ? '💄 Profissional: ' + prof.nome : '',
+        '💰 Valor: ' + brl_(total) + (num_(a.sinal) ? ' (sinal pago: ' + brl_(a.sinal) + ')' : ''),
+        '📌 Status: ' + a.status,
+        cli.alergias ? '⚠️ Alergias: ' + cli.alergias : '',
+        a.observacoes ? '📝 ' + a.observacoes : ''
+      ].filter(Boolean).join('\n') + '\n\nCriado pelo ' + (c.studioNome || 'Studio CRM');
+      var local = a.local === 'Studio' || !a.local ? (c.endereco || c.studioNome) : a.local;
+      var ini = parseLocal_(a.inicio), fim = parseLocal_(a.fim);
+
+      if (!ev) {
+        ev = cal.createEvent(titulo, ini, fim, { description: desc, location: local });
+        try {
+          ev.removeAllReminders();
+          if (num_(c.lembreteAgendaMin) > 0) ev.addPopupReminder(num_(c.lembreteAgendaMin));
+        } catch (e) {}
+      } else {
+        ev.setTime(ini, fim);
+        ev.setTitle(titulo);
+        ev.setDescription(desc);
+        ev.setLocation(local);
+      }
+      var cor = a.status === 'concluido' ? 'GREEN' : a.status === 'faltou' ? 'GRAY'
+        : (COR_CATEGORIA[(servs[0] || {}).categoria] || 'MAUVE');
+      try { ev.setColor(CalendarApp.EventColor[cor]); } catch (e) {}
+      patch = { eventId: ev.getId(), syncStatus: 'ok' };
+    }
+  } catch (e) {
+    patch = { syncStatus: 'erro: ' + String(e.message || e).slice(0, 120) };
+  }
+  if (patch.eventId === a.eventId && patch.syncStatus === a.syncStatus) return a;
+  return db_update_('Agendamentos', a.id, patch);
+}
