@@ -256,6 +256,43 @@ t('Evolution e Meta montam a requisição certa', () => {
   assert.strictEqual(b.template.components[0].parameters.length, 4);
 });
 
+console.log('\nGoogle Agenda de outro e-mail');
+t('lista agendas desta conta e esconde feriados', () => {
+  const r = API(token, 'cfg.calendarios', {});
+  assert.strictEqual(r.email, 'dona@studio.com');
+  assert(r.lista.some(x => x.id === 'primary'));
+  assert(!r.lista.some(x => x.id.includes('#holiday')));
+});
+t('agenda de outra conta sem compartilhamento dá erro explicativo', () => {
+  assert.throws(() => API(token, 'cfg.salvar', { calendarId: 'lara@gmail.com' }), /compartilhe-a com dona@studio.com/);
+  assert.strictEqual(cfg_().calendarId, 'primary');
+});
+t('agenda compartilhada só para ver é recusada', () => {
+  MOCK.compartilhadas['so.ver@gmail.com'] = { nome: 'Só ver', soLeitura: true };
+  assert.throws(() => API(token, 'cfg.salvar', { calendarId: 'so.ver@gmail.com' }), /só para ver/);
+  assert.strictEqual(cfg_().calendarId, 'primary');
+});
+t('agenda compartilhada com edição: conecta e os horários vão para ela', () => {
+  MOCK.compartilhadas['lara@gmail.com'] = { nome: 'Lara Altoé' };
+  API(token, 'cfg.salvar', { calendarId: 'lara@gmail.com' });
+  assert.strictEqual(cfg_().calendarId, 'lara@gmail.com');
+  const lista = API(token, 'cfg.calendarios', {}).lista;
+  assert(lista.some(x => x.id === 'lara@gmail.com' && x.nome.includes('compartilhada')));
+  const d = em(30 * 60);
+  const a = API(token, 'agenda.salvar', { clienteId: bia.id, servicoIds: [servSob.id], data: local(d), hora: '09:00', forcar: true });
+  assert.strictEqual(a.syncStatus, 'ok');
+  const ev = MOCK.events[db_get_('Agendamentos', a.id).eventId];
+  assert.strictEqual(ev.cal.getId(), 'lara@gmail.com');
+  assert(!Object.values(MOCK.events).some(e => e.title === 'Teste do CRM (pode apagar)'), 'evento de teste foi apagado');
+  const antes = Object.values(MOCK.events).filter(e => e.cal.getId() === 'dona@studio.com' && !e.title.includes('Almoço') && !e.title.includes('Dentista')).length;
+  assert(antes > 0, 'havia eventos na agenda antiga');
+  const r = API(token, 'agenda.ressincronizar', {});
+  assert.strictEqual(r.erros, 0);
+  const futurosAntiga = Object.values(MOCK.events).filter(e => e.cal.getId() === 'dona@studio.com' && e.start >= new Date(new Date().toDateString()) && !e.title.includes('Dentista'));
+  assert.strictEqual(futurosAntiga.length, 0, 'eventos futuros saíram da agenda antiga: ' + futurosAntiga.map(e => e.title + ' ' + e.start.toISOString()).join(' | '));
+  API(token, 'cfg.salvar', { calendarId: 'primary' });
+});
+
 console.log('\nPermissões');
 t('usuário da equipe não acessa o financeiro', () => {
   API(token, 'usuarios.salvar', { nome: 'Recepção', usuario: 'recepcao', perfil: 'equipe', senha: 'Recep1234' });

@@ -213,10 +213,31 @@ function ag_ressincronizar_() {
 
 /* ------------------------- Google Agenda ------------------------- */
 
-function cal_() {
-  var id = cfg_().calendarId;
+function cal_() { return cal_abrir_(cfg_().calendarId); }
+
+/**
+ * Abre uma agenda pelo ID. Funciona também com a agenda de OUTRA conta Google,
+ * desde que ela tenha sido compartilhada com a conta dona deste script
+ * (se ainda não estiver inscrita, o CRM se inscreve sozinho).
+ */
+function cal_abrir_(id) {
   if (!id || id === 'primary') return CalendarApp.getDefaultCalendar();
-  return CalendarApp.getCalendarById(id);
+  var cal = null;
+  try { cal = CalendarApp.getCalendarById(id); } catch (e) { cal = null; }
+  if (!cal) {
+    try { cal = CalendarApp.subscribeToCalendar(id, { hidden: false }); } catch (e) { cal = null; }
+  }
+  return cal;
+}
+
+/** Confere se dá para criar eventos na agenda (cria e apaga um evento de teste). */
+function cal_podeEditar_(cal) {
+  try {
+    var t = new Date(Date.now() + 400 * 86400000);
+    var ev = cal.createEvent('Teste do CRM (pode apagar)', t, new Date(t.getTime() + 60000));
+    ev.deleteEvent();
+    return true;
+  } catch (e) { return false; }
 }
 
 var COR_CATEGORIA = {
@@ -234,6 +255,10 @@ function ag_sync_(a) {
     if (!cal) throw new Error('agenda não encontrada');
     var ev = null;
     if (a.eventId) { try { ev = cal.getEventById(a.eventId); } catch (e) { ev = null; } }
+    if (!ev && a.eventId && c.calendarAnterior && c.calendarAnterior !== c.calendarId) {
+      // trocou de agenda: apaga o evento que ficou na agenda antiga para não duplicar
+      try { var antiga = cal_abrir_(c.calendarAnterior); var velho = antiga && antiga.getEventById(a.eventId); if (velho) velho.deleteEvent(); } catch (e) {}
+    }
 
     if (a.status === 'cancelado') {
       if (ev) ev.deleteEvent();

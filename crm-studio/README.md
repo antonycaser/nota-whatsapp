@@ -113,6 +113,9 @@ O Google mostra essa faixa quando o link `/exec` é aberto direto. Ela some quan
   3. Use esse link novo no lugar do `/exec` e adicione à tela inicial do celular.
 - **Google Sites:** crie um site em [sites.google.com](https://sites.google.com), use **Inserir → Incorporar → Por URL**, cole o link `/exec` e estique o quadro para ocupar a página toda.
 
+**A agenda que eu quero usar é de outro e-mail.**
+Na conta dona da agenda, abra o Google Agenda no computador e vá em **⚙️ Configurações → clique na agenda → Compartilhar com pessoas específicas**. Adicione o e-mail da conta onde o Apps Script está instalado com a permissão **"Fazer alterações nos eventos"**. Depois, no CRM, abra **Configurações → Google Agenda → Agenda: ➕ Agenda de outro e-mail…**, digite o e-mail, clique em **Salvar** e em **Reenviar horários futuros**. Os horários que estavam na agenda antiga são movidos para a nova.
+
 **Esqueci a senha.**
 No editor do Apps Script, rode a função **`redefinirSenhaAdmin`**. Uma nova senha provisória aparece no registro de execução.
 

@@ -148,15 +148,32 @@
     removeAllReminders() {} addPopupReminder() {}
     deleteEvent() { delete MOCK.events[this.id]; }
   }
-  const cal = {
-    getId: () => 'primary', getName: () => 'Agenda principal', isMyPrimaryCalendar: () => true,
-    createEvent: (t, s, e, o) => { const ev = new Ev(cal, t, s, e, o); MOCK.events[ev.id] = ev; return ev; },
-    getEventById: id => MOCK.events[id] || null,
-    getEvents: (s, e) => Object.values(MOCK.events).filter(ev => ev.start < e && ev.end > s)
-  };
+  function makeCal(id, nome, { primaria = false, minha = true, soLeitura = false } = {}) {
+    const c = {
+      getId: () => id, getName: () => nome, isMyPrimaryCalendar: () => primaria, isOwnedByMe: () => minha,
+      createEvent: (t, s, e, o) => { if (soLeitura) throw new Error('You do not have permission to create events'); const ev = new Ev(c, t, s, e, o); MOCK.events[ev.id] = ev; return ev; },
+      getEventById: eid => (MOCK.events[eid] && MOCK.events[eid].cal === c) ? MOCK.events[eid] : null,
+      getEvents: (s, e) => Object.values(MOCK.events).filter(ev => ev.cal === c && ev.start < e && ev.end > s)
+    };
+    return c;
+  }
+  const cal = makeCal('dona@studio.com', 'Agenda principal', { primaria: true });
+  const inscritas = [cal, makeCal('pt.brazilian#holiday@group.v.calendar.google.com', 'Feriados no Brasil', { minha: false, soLeitura: true })];
+  MOCK.compartilhadas = {}; // agendas de outras contas que foram compartilhadas (id -> opções)
   MOCK.addExterno = (t, s, e) => { const ev = cal.createEvent(t, s, e); return ev; };
+  MOCK.calendario = id => inscritas.find(c => c.getId() === id) || null;
   G.CalendarApp = {
-    getDefaultCalendar: () => cal, getCalendarById: id => (id === 'primary' ? cal : null), getAllOwnedCalendars: () => [cal],
+    getDefaultCalendar: () => cal,
+    getCalendarById: id => (id === 'primary' ? cal : inscritas.find(c => c.getId() === id) || null),
+    getAllOwnedCalendars: () => inscritas.filter(c => c.isOwnedByMe()),
+    getAllCalendars: () => inscritas.slice(),
+    subscribeToCalendar: id => {
+      const o = MOCK.compartilhadas[id];
+      if (!o) throw new Error('Calendar not found or no access: ' + id);
+      const c = makeCal(id, o.nome || id, { minha: false, soLeitura: !!o.soLeitura });
+      inscritas.push(c);
+      return c;
+    },
     EventColor: { PALE_BLUE: '1', PALE_GREEN: '2', MAUVE: '3', PALE_RED: '4', YELLOW: '5', ORANGE: '6', CYAN: '7', GRAY: '8', BLUE: '9', GREEN: '10', RED: '11' }
   };
 

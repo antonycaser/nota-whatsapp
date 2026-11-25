@@ -1643,6 +1643,10 @@ PAGES.config = async el => {
       <div class="card span-6"><div class="card-head"><div><h3>Google Agenda</h3><div class="sub">Tudo que você marca no CRM vai para a agenda</div></div></div><div class="card-body"><form id="fCal">
         <label class="switch"><input type="checkbox" name="calendarAtivo" ${c.calendarAtivo ? 'checked' : ''}><span>Sincronizar com o Google Agenda</span></label>
         <label class="field"><span>Agenda</span><select name="calendarId" id="calSel"><option value="${esc(c.calendarId)}">Carregando agendas…</option></select><small>Dica: crie uma agenda só do studio no Google Agenda e selecione aqui.</small></label>
+        <div id="calOutraBox" class="hidden">
+          <label class="field"><span>E-mail da outra conta (ou ID da agenda)</span><input name="calendarIdOutra" id="calOutra" autocapitalize="none" spellcheck="false" placeholder="exemplo@gmail.com"></label>
+          <div class="alert info">${ico('calendar')}<div>Antes, na <b>outra conta</b>: Google Agenda (computador) → ⚙️ Configurações → clique na agenda → <b>Compartilhar com pessoas específicas</b> → adicione <b id="calDono">o e-mail desta conta</b> com a permissão <b>“Fazer alterações nos eventos”</b>.</div></div>
+        </div>
         <label class="switch"><input type="checkbox" name="mostrarEventosGoogle" ${c.mostrarEventosGoogle ? 'checked' : ''}><span>Mostrar meus outros compromissos na agenda do CRM</span></label>
         <label class="field"><span>Alerta no celular (minutos antes)</span><input name="lembreteAgendaMin" type="number" min="0" value="${esc(c.lembreteAgendaMin)}"></label>
         <div class="actions-row"><button type="button" class="btn primary" data-salvar="fCal">Salvar</button><button type="button" class="btn" id="bResync">${ico('refresh')}Reenviar horários futuros</button></div></form></div></div>
@@ -1678,13 +1682,29 @@ PAGES.config = async el => {
         <p class="tiny muted">Versão ${esc(full.versao)}</p></div></div>
     </div>`;
 
-  call('cfg.calendarios').then(cals => {
-    $('#calSel').innerHTML = opts(cals.map(x => ({ v: x.id, l: x.nome })), c.calendarId);
-  }).catch(e => { $('#calSel').innerHTML = `<option value="${esc(c.calendarId)}">${esc(c.calendarId)}</option>`; erroToast(e); });
+  const calSel = $('#calSel');
+  const calVis = () => $('#calOutraBox').classList.toggle('hidden', calSel.value !== '__outra');
+  calSel.addEventListener('change', calVis);
+  call('cfg.calendarios').then(r => {
+    calSel.innerHTML = opts(r.lista.map(x => ({ v: x.id, l: x.nome })).concat([{ v: '__outra', l: '➕ Agenda de outro e-mail…' }]), c.calendarId);
+    $('#calDono').textContent = r.email;
+    calVis();
+  }).catch(e => { calSel.innerHTML = `<option value="${esc(c.calendarId)}">${esc(c.calendarId)}</option><option value="__outra">➕ Agenda de outro e-mail…</option>`; erroToast(e); });
 
   $$('[data-salvar]', el).forEach(b => b.addEventListener('click', () => busy(b, async () => {
     const d = formData($('#' + b.dataset.salvar));
-    try { S.cfg = await call('cfg.salvar', d); $('#brandName').textContent = S.cfg.studioNome; toast('Configurações salvas ✨'); } catch (err) { erroToast(err); }
+    const trocouAgenda = b.dataset.salvar === 'fCal' && (d.calendarId === '__outra' ? d.calendarIdOutra.trim() : d.calendarId) !== c.calendarId;
+    if (d.calendarId === '__outra') {
+      d.calendarId = String(d.calendarIdOutra || '').trim();
+      if (!d.calendarId) return toast('Digite o e-mail da outra conta.', 'err');
+    }
+    delete d.calendarIdOutra;
+    try {
+      S.cfg = await call('cfg.salvar', d);
+      $('#brandName').textContent = S.cfg.studioNome;
+      if (trocouAgenda) { toast('Agenda conectada! ✅ Agora clique em “Reenviar horários futuros”.'); render(); }
+      else toast('Configurações salvas ✨');
+    } catch (err) { erroToast(err); }
   })));
   $('#bResync').addEventListener('click', e => busy(e.currentTarget, async () => {
     try { const r = await call('agenda.ressincronizar'); toast(`${r.sincronizados} horário(s) enviados ao Google Agenda${r.erros ? ' · ' + r.erros + ' erro(s)' : ''}`); } catch (err) { erroToast(err); }

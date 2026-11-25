@@ -114,7 +114,8 @@ function cfg_getFull_() {
 }
 
 function cfg_save_(p) {
-  var c = cfg_();
+  var c = JSON.parse(JSON.stringify(cfg_())); // cópia: só grava se tudo der certo
+  var calAntes = c.calendarId;
   var permitidos = ['studioNome', 'responsavel', 'telefone', 'endereco', 'instagram', 'pix',
     'calendarAtivo', 'calendarId', 'mostrarEventosGoogle', 'lembreteAgendaMin',
     'horaAbertura', 'horaFechamento', 'intervaloAgenda', 'diasInativa',
@@ -131,19 +132,36 @@ function cfg_save_(p) {
     c[k] = v;
   });
   if (p.calendarId !== undefined && c.calendarAtivo) {
-    if (!cal_()) throw erro_('Não encontrei essa agenda do Google. Escolha outra na lista.');
+    var dono = Session.getEffectiveUser().getEmail();
+    var cal = cal_abrir_(c.calendarId);
+    if (!cal) {
+      throw erro_('Não consegui acessar a agenda "' + c.calendarId + '". Entre no Google Agenda da conta dona dessa agenda e ' +
+        'compartilhe-a com ' + dono + ' marcando a permissão "Fazer alterações nos eventos". Depois tente de novo.');
+    }
+    if (c.calendarId !== 'primary' && !cal_podeEditar_(cal)) {
+      throw erro_('Encontrei a agenda, mas ela está liberada só para ver. Na conta dona dela, mude o compartilhamento com ' +
+        dono + ' para "Fazer alterações nos eventos".');
+    }
   }
+  if (calAntes !== c.calendarId) c.calendarAnterior = calAntes; // para limpar eventos da agenda antiga
   cfg_gravar_(c);
   return cfg_publica_(cfg_());
 }
 
+/** Agendas disponíveis: as desta conta e as compartilhadas com ela (de outros e-mails). */
 function cal_listar_() {
-  var lista = [{ id: 'primary', nome: 'Agenda principal (' + Session.getEffectiveUser().getEmail() + ')' }];
-  CalendarApp.getAllOwnedCalendars().forEach(function (cal) {
+  var email = Session.getEffectiveUser().getEmail();
+  var lista = [{ id: 'primary', nome: 'Agenda principal desta conta (' + email + ')' }];
+  CalendarApp.getAllCalendars().forEach(function (cal) {
+    var id = cal.getId();
+    if (id.indexOf('#') >= 0) return; // feriados, aniversários e outras agendas automáticas
     if (cal.isMyPrimaryCalendar && cal.isMyPrimaryCalendar()) return;
-    lista.push({ id: cal.getId(), nome: cal.getName() });
+    var minha = cal.isOwnedByMe ? cal.isOwnedByMe() : true;
+    lista.push({ id: id, nome: cal.getName() + (minha ? '' : ' · compartilhada') });
   });
-  return lista;
+  var atual = cfg_().calendarId;
+  if (atual && !lista.some(function (x) { return x.id === atual; })) lista.push({ id: atual, nome: atual });
+  return { lista: lista, email: email };
 }
 
 function waSecret_() {
