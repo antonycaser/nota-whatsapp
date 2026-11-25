@@ -440,6 +440,22 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .ag-card.ext .ag-body { background: repeating-linear-gradient(135deg, var(--surface-2), var(--surface-2) 6px, var(--surface) 6px, var(--surface) 12px);
   border-left-color: var(--muted); box-shadow: none; }
 .ag-card.st-x-cancelado, .ag-card.st-x-faltou { opacity: .55; }
+.ag-modo { margin: 0 0 12px; }
+.mes-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; padding: 10px 6px 8px; box-shadow: var(--shadow); margin-bottom: 12px; }
+.mes-dow { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; padding: 0 0 6px; text-transform: uppercase; }
+.mes-cel { min-height: 48px; border: 0; background: transparent; border-radius: 12px; display: flex; flex-direction: column; align-items: center;
+  gap: 3px; padding: 4px 0; cursor: pointer; color: var(--text); font: inherit; }
+.mes-cel b { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 15px;
+  font-weight: 600; font-variant-numeric: tabular-nums; }
+.mes-cel.passado b { color: var(--muted); }
+.mes-cel.fora { opacity: .35; }
+.mes-cel.hoje b { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.mes-cel.on b { background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 10px rgba(8, 92, 92, .3); }
+.mes-dots { display: flex; gap: 2px; height: 7px; align-items: center; font-style: normal; }
+.mes-dots em { width: 6px; height: 6px; border-radius: 50%; }
+.mes-dots em.ext { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.mes-dots small { font-size: 9px; font-weight: 700; color: var(--muted); line-height: 1; margin-left: 1px; }
 .slot-free { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: calc(100% - 56px); margin: 0 0 10px 56px; padding: 11px 14px;
   border: 1.5px dashed var(--border); border-radius: 14px; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
 .slot-free b { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; }

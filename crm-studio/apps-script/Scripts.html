@@ -723,34 +723,48 @@ PAGES.agenda = async el => {
   const fCor = $('#fCorProf');
   if (fCor) fCor.addEventListener('change', () => { S.corPorProf = fCor.checked; cal.refetchEvents(); });
 };
-/** Agenda no celular: faixa de dias deslizável + lista do dia com horários livres. */
+/** Agenda no celular: visão "Dia" (faixa de dias) ou "Mês" (calendário do mês) + lista do dia. */
 async function agendaMobile(el) {
   S.agDia = S.agDia || hoje();
-  if (!S.agBase || S.agDia < S.agBase || S.agDia > addDias(S.agBase, 20)) S.agBase = addDias(S.agDia, -7);
-  const base = S.agBase, fimStrip = addDias(base, 27); // 4 semanas
-  return callRapido('agenda.listar', { inicio: base, fim: fimStrip, externos: true }, r => montarAgendaMobile(el, r, base, fimStrip), el);
+  S.agModo = S.agModo || store.get('crm_agmodo') || 'dia';
+  let ini, fim;
+  if (S.agModo === 'mes') {
+    const primeiro = S.agDia.slice(0, 7) + '-01';
+    ini = addDias(primeiro, -new Date(primeiro + 'T12:00').getDay()); // domingo da 1ª semana
+    fim = addDias(ini, 41);                                           // 6 semanas na grade
+  } else {
+    if (!S.agBase || S.agDia < S.agBase || S.agDia > addDias(S.agBase, 20)) S.agBase = addDias(S.agDia, -7);
+    ini = S.agBase; fim = addDias(ini, 27);                           // 4 semanas na faixa
+  }
+  return callRapido('agenda.listar', { inicio: ini, fim, externos: true }, r => montarAgendaMobile(el, r, ini, fim), el);
 }
 function montarAgendaMobile(el, r, base, fimStrip) {
+  const modo = S.agModo;
   const equipeAtiva = S.equipe.filter(p => p.ativo !== 'nao');
   const porDia = {}, ext = {};
   r.agendamentos.forEach(a => { const k = a.inicio.slice(0, 10); (porDia[k] = porDia[k] || []).push(a); });
   r.externos.forEach(x => { const k = x.inicio.slice(0, 10); (ext[k] = ext[k] || []).push(x); });
   const dias = [];
   for (let d = base; d <= fimStrip; d = addDias(d, 1)) dias.push(d);
+  const doFiltro = a => !S.filtroProf || !a.profissionalId || a.profissionalId === S.filtroProf;
+  const ativosDe = d => (porDia[d] || []).filter(a => a.status !== 'cancelado' && doFiltro(a));
+  const mesAtual = S.agDia.slice(0, 7);
 
   el.innerHTML = `
     <div class="ag-m-head">
-      <b id="agMes" style="text-transform:capitalize"></b>
+      ${modo === 'mes'
+        ? `<div class="month-nav"><button class="icon-btn sm" data-mm="-1" aria-label="Mês anterior">${ico('left')}</button><span id="agMes"></span><button class="icon-btn sm" data-mm="1" aria-label="Próximo mês">${ico('right')}</button></div>`
+        : `<b id="agMes" style="text-transform:capitalize"></b>`}
       <div class="actions-row">
         <button class="btn sm" id="agHoje">Hoje</button>
-        <label class="btn sm" style="position:relative" title="Escolher data">${ico('calendar')}<input type="date" id="agPick" value="${S.agDia}" style="position:absolute;inset:0;opacity:0;width:100%;height:100%"></label>
-        <button class="btn sm" id="agCal" title="Ver calendário">${ico('dashboard')}</button>
+        ${modo === 'dia' ? `<label class="btn sm" style="position:relative" title="Escolher data">${ico('calendar')}<input type="date" id="agPick" value="${S.agDia}" style="position:absolute;inset:0;opacity:0;width:100%;height:100%"></label>` : ''}
+        <button class="btn sm" id="agCal" title="Calendário completo (semana)">${ico('dashboard')}</button>
       </div>
     </div>
-    <div class="day-strip" id="agStrip">${dias.map(d => {
-      const n = (porDia[d] || []).filter(a => a.status !== 'cancelado').length;
-      return `<button class="day-chip ${d === hoje() ? 'today' : ''}" data-dia="${d}"><span>${DIAS_ABREV[new Date(d + 'T12:00').getDay()]}</span><b>${Number(d.slice(8))}</b><i class="dots">${n ? '<em></em>'.repeat(Math.min(n, 3)) : ''}</i></button>`;
-    }).join('')}</div>
+    <div class="seg ag-modo" id="agModo"><button data-modo="dia" class="${modo === 'dia' ? 'active' : ''}">Dia</button><button data-modo="mes" class="${modo === 'mes' ? 'active' : ''}">Mês</button></div>
+    ${modo === 'mes'
+      ? `<div class="mes-grid" id="agGrade"></div><div id="agMesResumo" class="muted tiny" style="margin:-4px 2px 12px"></div>`
+      : `<div class="day-strip" id="agStrip">${dias.map(d => `<button class="day-chip ${d === hoje() ? 'today' : ''}" data-dia="${d}"><span>${DIAS_ABREV[new Date(d + 'T12:00').getDay()]}</span><b>${Number(d.slice(8))}</b><i class="dots"></i></button>`).join('')}</div>`}
     ${equipeAtiva.length > 1 ? `<div class="seg" id="agProf" style="margin:4px 0 12px"><button data-p="" class="${!S.filtroProf ? 'active' : ''}">Todas</button>${equipeAtiva.map(p => `<button data-p="${p.id}" class="${S.filtroProf === p.id ? 'active' : ''}">${esc(primeiroNome(p.nome))}</button>`).join('')}</div>` : ''}
     <div id="agDiaInfo" class="muted tiny" style="margin:4px 2px 10px"></div>
     <div id="agLista"></div>`;
@@ -773,14 +787,41 @@ function montarAgendaMobile(el, r, base, fimStrip) {
         </div></div></div>`;
   }
 
+  /** Grade do mês: número do dia + bolinhas com a cor dos serviços. */
+  function desenharGrade() {
+    const grade = $('#agGrade', el);
+    if (!grade) return;
+    const cab = DIAS_ABREV.map(d => `<div class="mes-dow">${d.charAt(0)}</div>`).join('');
+    grade.innerHTML = cab + dias.map(d => {
+      const ag = ativosDe(d);
+      const temExt = (ext[d] || []).length > 0;
+      const bolinhas = ag.slice(0, 3).map(a => `<em style="background:${esc(a.cor)}"></em>`).join('')
+        + (ag.length > 3 ? `<small>+${ag.length - 3}</small>` : '') + (temExt && ag.length < 3 ? '<em class="ext"></em>' : '');
+      const cls = ['mes-cel', d.slice(0, 7) !== mesAtual ? 'fora' : '', d === hoje() ? 'hoje' : '', d === S.agDia ? 'on' : '', d < hoje() ? 'passado' : ''].join(' ');
+      return `<button class="${cls}" data-dia="${d}" aria-label="${fData(d)}: ${ag.length} horário(s)"><b>${Number(d.slice(8))}</b><i class="mes-dots">${bolinhas}</i></button>`;
+    }).join('');
+    const doMes = dias.filter(d => d.slice(0, 7) === mesAtual);
+    const qtd = doMes.reduce((t, d) => t + ativosDe(d).length, 0);
+    const valor = doMes.reduce((t, d) => t + ativosDe(d).reduce((s, a) => s + a.valor - (a.desconto || 0), 0), 0);
+    const livres = doMes.filter(d => d >= hoje() && new Date(d + 'T12:00').getDay() !== 0 && !ativosDe(d).length).length;
+    $('#agMesResumo', el).innerHTML = `${qtd} horário(s) no mês${isAdmin() && valor ? ' · ' + brl(valor) : ''}${livres ? ` · ${livres} dia(s) livre(s) pela frente` : ''}`;
+  }
+
   const desenhar = () => {
     const dia = S.agDia;
-    $$('.day-chip', el).forEach(c => c.classList.toggle('on', c.dataset.dia === dia));
-    $('#agMes').textContent = MESES[Number(dia.slice(5, 7)) - 1] + ' ' + dia.slice(0, 4);
-    const lista = (porDia[dia] || []).filter(a => !S.filtroProf || !a.profissionalId || a.profissionalId === S.filtroProf);
+    $('#agMes', el).textContent = MESES[Number(dia.slice(5, 7)) - 1] + ' ' + dia.slice(0, 4);
+    if (modo === 'mes') desenharGrade();
+    else {
+      $$('.day-chip', el).forEach(c => {
+        c.classList.toggle('on', c.dataset.dia === dia);
+        const n = ativosDe(c.dataset.dia).length;
+        $('.dots', c).innerHTML = n ? '<em></em>'.repeat(Math.min(n, 3)) : '';
+      });
+    }
+    const lista = (porDia[dia] || []).filter(doFiltro);
     const ativos = lista.filter(a => a.status !== 'cancelado');
     const total = ativos.reduce((t, a) => t + a.valor - (a.desconto || 0), 0);
-    $('#agDiaInfo').innerHTML = `<b style="color:var(--text);text-transform:capitalize">${diaSemana(dia)}, ${fData(dia)}</b> · ${ativos.length} horário(s)${isAdmin() && total ? ' · previsto ' + brl(total) : ''}`;
+    $('#agDiaInfo', el).innerHTML = `<b style="color:var(--text);text-transform:capitalize">${diaSemana(dia)}, ${fData(dia)}</b> · ${ativos.length} horário(s)${isAdmin() && total ? ' · previsto ' + brl(total) : ''}`;
 
     // linha do tempo: atendimentos, compromissos pessoais e janelas livres
     const itens = lista.map(a => ({ t: 'ag', ini: minutos(fHora(a.inicio)), fim: minutos(fHora(a.fim)), a }))
@@ -803,12 +844,12 @@ function montarAgendaMobile(el, r, base, fimStrip) {
         : `<div class="ag-card ext"><div class="ag-time"><b>${hhmm(it.ini)}</b><span>${hhmm(it.fim)}</span></div><div class="ag-body"><div class="title">🔒 ${esc(it.x.titulo)}</div><div class="sub">Compromisso do seu Google Agenda</div></div></div>`);
     });
     livre(cursor, fecha);
-    $('#agLista').innerHTML = out.length ? out.join('')
+    $('#agLista', el).innerHTML = out.length ? out.join('')
       : `<div class="empty"><div class="big">🌿</div>${dia < hoje() ? 'Nenhum atendimento neste dia.' : 'Agenda cheia ou fora do horário de funcionamento.'}</div>`;
   };
 
   const recarregar = () => render();
-  $('#agLista').addEventListener('click', async e => {
+  $('#agLista', el).addEventListener('click', async e => {
     if (e.target.closest('[data-stop]')) return;
     const slot = e.target.closest('[data-hora]');
     if (slot) return formAgendamento({ data: S.agDia, hora: slot.dataset.hora }, recarregar);
@@ -823,15 +864,36 @@ function montarAgendaMobile(el, r, base, fimStrip) {
     const card = e.target.closest('[data-ag]');
     if (card) detalheAgendamento(card.dataset.ag, recarregar);
   });
-  const centralizar = (d, suave) => { const c = $(`[data-dia="${d}"]`, el); if (c) c.scrollIntoView({ inline: 'center', block: 'nearest', behavior: suave ? 'smooth' : 'auto' }); };
-  $('#agStrip').addEventListener('click', e => { const c = e.target.closest('[data-dia]'); if (c) { S.agDia = c.dataset.dia; desenhar(); centralizar(S.agDia, true); } });
-  $('#agHoje').addEventListener('click', () => { S.agDia = hoje(); if (hoje() < base || hoje() > fimStrip) return render(); desenhar(); centralizar(S.agDia, true); });
-  $('#agPick').addEventListener('change', e => { if (!e.target.value) return; S.agDia = e.target.value; render(); });
-  $('#agCal').addEventListener('click', () => { S.agendaModo = 'calendario'; render(); });
+
+  const centralizar = (d, suave) => { const c = $(`.day-chip[data-dia="${d}"]`, el); if (c) c.scrollIntoView({ inline: 'center', block: 'nearest', behavior: suave ? 'smooth' : 'auto' }); };
+  const irPara = d => {
+    S.agDia = d;
+    const fora = modo === 'mes' ? d.slice(0, 7) !== mesAtual : (d < base || d > fimStrip);
+    if (fora) return render();
+    desenhar();
+    if (modo === 'dia') centralizar(d, true);
+    else { const lista = $('#agDiaInfo', el); if (lista && lista.getBoundingClientRect().top > window.innerHeight - 160) lista.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  };
+  const strip = $('#agStrip', el);
+  if (strip) strip.addEventListener('click', e => { const c = e.target.closest('[data-dia]'); if (c) irPara(c.dataset.dia); });
+  const grade = $('#agGrade', el);
+  if (grade) grade.addEventListener('click', e => { const c = e.target.closest('[data-dia]'); if (c) irPara(c.dataset.dia); });
+  $$('[data-mm]', el).forEach(b => b.addEventListener('click', () => {
+    const ym = addMes(mesAtual, Number(b.dataset.mm));
+    S.agDia = ym === hoje().slice(0, 7) ? hoje() : ym + '-01';
+    render();
+  }));
+  $('#agHoje', el).addEventListener('click', () => irPara(hoje()));
+  const pick = $('#agPick', el);
+  if (pick) pick.addEventListener('change', e => { if (e.target.value) irPara(e.target.value); });
+  $('#agCal', el).addEventListener('click', () => { S.agendaModo = 'calendario'; render(); });
+  $$('#agModo button', el).forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.modo === modo) return;
+    S.agModo = b.dataset.modo; store.set('crm_agmodo', S.agModo); render();
+  }));
   $$('#agProf button', el).forEach(b => b.addEventListener('click', () => { S.filtroProf = b.dataset.p; $$('#agProf button', el).forEach(x => x.classList.toggle('active', x === b)); desenhar(); }));
   desenhar();
-  centralizar(S.agDia, false);
-  window.scrollTo(0, 0);
+  if (modo === 'dia') centralizar(S.agDia, false);
 }
 
 async function moverEvento(info, toLocal) {
