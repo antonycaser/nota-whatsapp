@@ -45,8 +45,8 @@ function include(nome) {
 }
 
 /** Login público — devolve token de sessão. */
-function login(usuario, senha) {
-  return JSON.stringify(safe_(function () { return auth_login_(usuario, senha); }));
+function login(usuario, senha, lembrar) {
+  return JSON.stringify(safe_(function () { return auth_login_(usuario, senha, lembrar); }));
 }
 
 /** Ponto único de entrada de todas as ações autenticadas do portal. */

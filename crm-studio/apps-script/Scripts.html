@@ -227,8 +227,36 @@ function mostrarLogin(msg) {
   const err = $('#loginErro');
   if (msg) { err.textContent = msg; err.classList.remove('hidden'); } else err.classList.add('hidden');
 }
+/* Ponte com o portal (página do Netlify): guarda o login na página principal,
+   porque o celular às vezes apaga o que fica guardado dentro do quadro do Google. */
+const PORTAL = { origem: null };
+function perguntarPortal() {
+  return new Promise(res => {
+    let feito = false;
+    const fim = v => { if (feito) return; feito = true; window.removeEventListener('message', h); res(v); };
+    const h = e => { const d = e.data || {}; if (d && d.crm === 'token') { PORTAL.origem = e.origin; fim(d.token || null); } };
+    try {
+      if (window.top === window) return fim(null);
+      window.addEventListener('message', h);
+      window.top.postMessage({ crm: 'pedir' }, '*');
+    } catch (e) { return fim(null); }
+    setTimeout(() => fim(null), 700);
+  });
+}
+function avisarPortal(msg) {
+  if (!PORTAL.origem) return;
+  try { window.top.postMessage(msg, PORTAL.origem); } catch (e) {}
+}
+function guardarToken(token, lembrar) {
+  if (lembrar) { store.set('crm_token', token); avisarPortal({ crm: 'salvar', token }); }
+  else { store.del('crm_token'); avisarPortal({ crm: 'limpar' }); try { sessionStorage.setItem('crm_token', token); } catch (e) {} }
+}
+function esquecerToken() {
+  store.del('crm_token'); avisarPortal({ crm: 'limpar' });
+  try { sessionStorage.removeItem('crm_token'); } catch (e) {}
+}
 function sessaoExpirada(msg) {
-  S.token = null; store.del('crm_token');
+  S.token = null; esquecerToken();
   $('#modalRoot').innerHTML = '';
   mostrarLogin(msg || 'Sua sessão expirou. Entre novamente.');
 }
@@ -242,8 +270,8 @@ async function iniciar() {
     $('#loginErro').classList.add('hidden');
     await busy(btn, async () => {
       try {
-        const r = await rpc('login', f.usuario, f.senha);
-        S.token = r.token; store.set('crm_token', r.token);
+        const r = await rpc('login', f.usuario, f.senha, f.lembrar !== false);
+        S.token = r.token; guardarToken(r.token, f.lembrar !== false);
         e.target.reset();
         await carregar();
       } catch (err) { mostrarLogin(err.message); }
@@ -251,9 +279,13 @@ async function iniciar() {
   });
   $('[data-eye]').addEventListener('click', () => { const i = $('#loginForm [name=senha]'); i.type = i.type === 'password' ? 'text' : 'password'; });
 
-  S.token = store.get('crm_token');
+  const doPortal = await perguntarPortal();
+  let sessao = null;
+  try { sessao = sessionStorage.getItem('crm_token'); } catch (e) {}
+  S.token = store.get('crm_token') || doPortal || sessao;
   if (!S.token) return mostrarLogin();
-  try { await carregar(); } catch (e) { mostrarLogin(e.auth ? '' : e.message); }
+  if (!sessao) guardarToken(S.token, true); // sincroniza aparelho e portal
+  try { await carregar(); } catch (e) { if (!e.auth) mostrarLogin(e.message); }
 }
 async function carregar() {
   const d = await call('boot');
@@ -291,7 +323,7 @@ function trocarSenhaObrigatoria() {
 }
 async function sair() {
   try { await call('auth.logout'); } catch (e) {}
-  S.token = null; store.del('crm_token');
+  S.token = null; esquecerToken();
   mostrarLogin();
 }
 

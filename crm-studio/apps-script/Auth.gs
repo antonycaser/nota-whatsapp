@@ -3,7 +3,9 @@
  * Perfis: "admin" (acesso total) e "equipe" (agenda e clientes).
  */
 
-var SESSAO_TTL = 6 * 60 * 60; // 6 horas (renova a cada uso)
+var SESSAO_CACHE = 6 * 60 * 60;   // cache rápido (máx. do Google: 6h)
+var SESSAO_DIAS = 180;            // "manter conectada": 180 dias, renovados a cada uso
+var SESSAO_CURTA_DIAS = 0.5;      // sem "manter conectada": 12 horas
 var MAX_TENTATIVAS = 5;
 
 function auth_hash_(senha, salt) {
@@ -15,7 +17,7 @@ function auth_hash_(senha, salt) {
   return h;
 }
 
-function auth_login_(usuario, senha) {
+function auth_login_(usuario, senha, lembrar) {
   usuario = String(usuario || '').trim().toLowerCase();
   if (!usuario || !senha) throw erro_('Informe usuário e senha.');
   var cache = CacheService.getScriptCache();
@@ -36,9 +38,56 @@ function auth_login_(usuario, senha) {
 
   var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
   var sess = auth_sessao_(u);
-  cache.put('sess_' + token, JSON.stringify(sess), SESSAO_TTL);
+  sess.dias = lembrar === false ? SESSAO_CURTA_DIAS : SESSAO_DIAS;
+  sess.exp = Date.now() + sess.dias * 86400000;
+  sess.renovado = Date.now();
+  auth_gravarSessao_(token, sess);
   db_update_('Usuarios', u.id, { ultimoAcesso: agora_() });
   return { token: token, user: sess };
+}
+
+/** Chave da sessão: hash do token (o token em si nunca fica gravado). */
+function sess_chave_(token) {
+  var d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'sess|' + token, Utilities.Charset.UTF_8);
+  return 'S_' + Utilities.base64Encode(d).replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+}
+
+/** Grava a sessão de forma permanente (Propriedades) + cache rápido. */
+function auth_gravarSessao_(token, sess) {
+  var k = sess_chave_(token), raw = JSON.stringify(sess);
+  PropertiesService.getScriptProperties().setProperty(k, raw);
+  CacheService.getScriptCache().put(k, raw, SESSAO_CACHE);
+}
+
+function auth_apagarSessao_(token) {
+  var k = sess_chave_(token);
+  PropertiesService.getScriptProperties().deleteProperty(k);
+  CacheService.getScriptCache().remove(k);
+}
+
+/** Encerra todas as sessões de um usuário (ex.: senha trocada, acesso bloqueado). */
+function auth_encerrarSessoes_(userId, manterToken) {
+  var props = PropertiesService.getScriptProperties();
+  var cache = CacheService.getScriptCache();
+  var manter = manterToken ? sess_chave_(manterToken) : '';
+  props.getKeys().forEach(function (k) {
+    if (k.indexOf('S_') !== 0 || k === manter) return;
+    var s = json_(props.getProperty(k), null);
+    if (!s || s.id === userId) { props.deleteProperty(k); cache.remove(k); }
+  });
+}
+
+/** Apaga sessões vencidas (roda 1x por dia pelo gatilho). */
+function auth_limparSessoes_() {
+  var props = PropertiesService.getScriptProperties();
+  var hoje = hoje_();
+  if (props.getProperty('SESS_LIMPEZA') === hoje) return;
+  props.getKeys().forEach(function (k) {
+    if (k.indexOf('S_') !== 0) return;
+    var s = json_(props.getProperty(k), null);
+    if (!s || (s.exp && s.exp < Date.now())) props.deleteProperty(k);
+  });
+  props.setProperty('SESS_LIMPEZA', hoje);
 }
 
 function auth_sessao_(u) {
@@ -46,17 +95,38 @@ function auth_sessao_(u) {
 }
 
 function auth_check_(token) {
-  var e;
-  if (!token || String(token).length < 40) { e = new Error('Faça login para continuar.'); e.auth = false; e.usuario = true; throw e; }
+  var falha = function (msg) { var e = new Error(msg); e.auth = false; e.usuario = true; return e; };
+  if (!token || String(token).length < 40) throw falha('Faça login para continuar.');
+  var k = sess_chave_(token);
   var cache = CacheService.getScriptCache();
-  var raw = cache.get('sess_' + token);
-  if (!raw) { e = new Error('Sua sessão expirou. Entre novamente.'); e.auth = false; e.usuario = true; throw e; }
-  cache.put('sess_' + token, raw, SESSAO_TTL); // sessão deslizante
-  return JSON.parse(raw);
+  var sess = json_(cache.get(k), null);
+  if (!sess) {
+    // não está no cache (expirou ou o Google limpou): busca a sessão permanente
+    sess = json_(PropertiesService.getScriptProperties().getProperty(k), null);
+    if (sess) {
+      var u = db_get_('Usuarios', sess.id);
+      if (!u || u.ativo === 'nao') { auth_apagarSessao_(token); sess = null; }
+      else {
+        sess.nome = u.nome; sess.usuario = u.usuario; sess.perfil = u.perfil || 'equipe'; sess.trocarSenha = u.trocarSenha === 'sim';
+      }
+    }
+  }
+  if (!sess) throw falha('Sua sessão expirou. Entre novamente.');
+  if (sess.exp && sess.exp < Date.now()) { auth_apagarSessao_(token); throw falha('Sua sessão expirou. Entre novamente.'); }
+  // sessão deslizante: renova o prazo no máximo 1x por dia (evita gravações a cada clique)
+  if (!sess.renovado || Date.now() - sess.renovado > 86400000) {
+    sess.dias = sess.dias || SESSAO_DIAS;
+    sess.exp = Date.now() + sess.dias * 86400000;
+    sess.renovado = Date.now();
+    auth_gravarSessao_(token, sess);
+  } else {
+    cache.put(k, JSON.stringify(sess), SESSAO_CACHE);
+  }
+  return sess;
 }
 
 function auth_logout_(token) {
-  CacheService.getScriptCache().remove('sess_' + token);
+  auth_apagarSessao_(token);
 }
 
 function auth_alterarSenha_(p, sess, token) {
@@ -67,7 +137,8 @@ function auth_alterarSenha_(p, sess, token) {
   var salt = uid_() + uid_();
   db_update_('Usuarios', u.id, { salt: salt, hash: auth_hash_(p.nova, salt), trocarSenha: 'nao' });
   sess.trocarSenha = false;
-  CacheService.getScriptCache().put('sess_' + token, JSON.stringify(sess), SESSAO_TTL);
+  auth_encerrarSessoes_(u.id, token); // desconecta os outros aparelhos
+  auth_gravarSessao_(token, sess);
   return sess;
 }
 
@@ -106,6 +177,7 @@ function usr_resetAdmin_() {
   if (admin) db_update_('Usuarios', admin.id, dados);
   else db_insert_('Usuarios', Object.assign({ nome: 'Administradora', usuario: 'admin' }, dados));
   CacheService.getScriptCache().remove('falha_admin');
+  auth_encerrarSessoes_((admin || {}).id || '__nenhum');
   return senha;
 }
 
@@ -134,6 +206,7 @@ function usr_salvar_(p, sess) {
     throw erro_('Defina uma senha provisória para o novo usuário.');
   }
   var r = p.id ? db_update_('Usuarios', p.id, dados) : db_insert_('Usuarios', dados);
+  if (p.id && p.id !== sess.id && (dados.ativo === 'nao' || p.senha)) auth_encerrarSessoes_(p.id);
   return { id: r.id };
 }
 
@@ -142,5 +215,6 @@ function usr_excluir_(p, sess) {
   var admins = db_all_('Usuarios').filter(function (u) { return u.perfil === 'admin' && u.ativo !== 'nao' && u.id !== p.id; });
   if (!admins.length) throw erro_('O sistema precisa de pelo menos uma administradora.');
   db_delete_('Usuarios', p.id);
+  auth_encerrarSessoes_(p.id);
   return true;
 }

@@ -48,6 +48,23 @@
     </div>
   </div>
   <script>
+    // Guarda o login do CRM nesta página, para não precisar entrar de novo a cada vez.
+    (function () {
+      var CHAVE = 'crm_token_portal';
+      function ler() { try { return localStorage.getItem(CHAVE) || ''; } catch (e) { return ''; } }
+      function gravar(v) { try { v ? localStorage.setItem(CHAVE, v) : localStorage.removeItem(CHAVE); } catch (e) {} }
+      window.addEventListener('message', function (e) {
+        var host = '';
+        try { host = new URL(e.origin).hostname; } catch (err) { return; }
+        if (!/(^|\.)googleusercontent\.com$/.test(host)) return; // só conversa com o CRM do Google
+        var d = e.data || {};
+        if (d.crm === 'pedir') e.source.postMessage({ crm: 'token', token: ler() }, e.origin);
+        else if (d.crm === 'salvar' && typeof d.token === 'string' && d.token.length >= 40) gravar(d.token);
+        else if (d.crm === 'limpar') gravar('');
+      });
+    })();
+  </script>
+  <script>
     (function () {
       var ok = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec/.test(LINK_DO_APP);
       if (!ok) {

@@ -306,6 +306,47 @@ t('usuário da equipe não acessa o financeiro', () => {
 t('não dá para excluir a si mesma nem o último admin', () => {
   assert.throws(() => API(token, 'usuarios.excluir', { id: sess.id }), /próprio/);
 });
+t('sessão continua válida mesmo se o cache do Google for limpo', () => {
+  Object.keys(MOCK.cache).filter(k => k.startsWith('S_')).forEach(k => delete MOCK.cache[k]);
+  assert(API(token, 'auth.me').id === sess.id);
+});
+t('"manter conectada" dura meses e renova com o uso', () => {
+  const me = API(token, 'auth.me');
+  assert(me.exp - Date.now() > 170 * 86400000);
+  const tk = JSON.parse(login('admin', 'NovaSenha123', false)).data.token;
+  const curta = API(tk, 'auth.me');
+  assert(curta.exp - Date.now() < 13 * 3600000, 'sessão curta de 12h');
+  MOCK.nowOffsetMs = 13 * 3600000;
+  assert.strictEqual(JSON.parse(api(tk, 'boot', {})).auth, false, 'sessão curta venceu');
+  assert(API(token, 'auth.me').id, 'sessão longa segue valendo');
+  MOCK.nowOffsetMs = 0;
+});
+t('o token não fica gravado em texto puro', () => {
+  assert(!Object.keys(MOCK.props).some(k => k.includes(token)));
+  assert(!Object.values(MOCK.props).some(v => String(v).includes(token)));
+});
+t('bloquear usuário derruba as sessões dele', () => {
+  const rec = db_all_('Usuarios').find(u => u.usuario === 'recepcao');
+  const tk = JSON.parse(login('recepcao', 'Recep1234')).data.token;
+  API(token, 'usuarios.salvar', { id: rec.id, nome: rec.nome, usuario: 'recepcao', perfil: 'equipe', ativo: 'nao' });
+  assert.strictEqual(JSON.parse(api(tk, 'boot', {})).auth, false);
+});
+t('trocar a senha desconecta os outros aparelhos, mas não o atual', () => {
+  const outro = JSON.parse(login('admin', 'NovaSenha123')).data.token;
+  API(token, 'auth.alterarSenha', { atual: 'NovaSenha123', nova: 'OutraSenha456' });
+  assert.strictEqual(JSON.parse(api(outro, 'boot', {})).auth, false);
+  assert(API(token, 'auth.me').id);
+});
+t('limpeza diária remove sessões vencidas', () => {
+  const tk = JSON.parse(login('admin', 'OutraSenha456', false)).data.token;
+  const k = sess_chave_(tk);
+  assert(MOCK.props[k]);
+  MOCK.nowOffsetMs = 2 * 86400000;
+  delete MOCK.props.SESS_LIMPEZA;
+  auth_limparSessoes_();
+  MOCK.nowOffsetMs = 0;
+  assert(!MOCK.props[k]);
+});
 t('logout invalida a sessão', () => {
   API(token, 'auth.logout');
   assert.strictEqual(JSON.parse(api(token, 'boot', {})).auth, false);

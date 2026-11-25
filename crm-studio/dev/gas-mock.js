@@ -121,7 +121,8 @@
   /* ---------- Propriedades / cache / lock ---------- */
   const props = {};
   G.PropertiesService = { getScriptProperties: () => ({
-    getProperty: k => props[k] === undefined ? null : props[k], setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; }
+    getProperty: k => props[k] === undefined ? null : props[k], setProperty: (k, v) => { props[k] = String(v); }, deleteProperty: k => { delete props[k]; },
+    getKeys: () => Object.keys(props)
   }) };
   const cache = {};
   G.CacheService = { getScriptCache: () => ({

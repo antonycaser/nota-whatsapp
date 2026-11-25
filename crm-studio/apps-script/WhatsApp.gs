@@ -210,7 +210,10 @@ function wa_logs_(p) {
 function processarLembretes() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return;
-  try { processarAutomacoes_(false); } finally { lock.releaseLock(); }
+  try {
+    try { auth_limparSessoes_(); } catch (e) { console.warn('limpeza de sessões: ' + e); }
+    processarAutomacoes_(false);
+  } finally { lock.releaseLock(); }
 }
 
 function processarAutomacoes_(manual) {
