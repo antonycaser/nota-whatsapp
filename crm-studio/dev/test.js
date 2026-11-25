@@ -256,6 +256,40 @@ t('Evolution e Meta montam a requisição certa', () => {
   assert.strictEqual(b.template.components[0].parameters.length, 4);
 });
 
+console.log('\nVelocidade (cache das abas)');
+const novaExecucao = () => { _memo = {}; _gen = null; };
+t('segunda leitura vem do cache, sem abrir a planilha', () => {
+  novaExecucao(); db_all_('Clientes');
+  const antes = MOCK.leituras;
+  novaExecucao(); const lista = db_all_('Clientes');
+  assert.strictEqual(MOCK.leituras, antes, 'não leu a planilha');
+  assert(lista.length >= 2 && lista.every(c => c.id && c.nome));
+});
+t('gravar invalida o cache e a próxima leitura vê o dado novo', () => {
+  novaExecucao(); db_all_('Clientes');
+  novaExecucao(); const c = API(token, 'clientes.salvar', { nome: 'Cliente Cache', telefone: '11955554444' });
+  novaExecucao(); assert(db_all_('Clientes').some(x => x.id === c.id));
+  novaExecucao(); db_delete_('Clientes', c.id);
+  novaExecucao(); assert(!db_all_('Clientes').some(x => x.id === c.id));
+});
+t('cache com números e datas preserva os tipos', () => {
+  novaExecucao(); const a1 = db_all_('Agendamentos')[0];
+  novaExecucao(); const a2 = db_all_('Agendamentos')[0];
+  assert.deepStrictEqual(a1, a2);
+  assert.strictEqual(typeof a2.valor, 'number');
+});
+t('gravação usa a planilha ao vivo (linha certa mesmo com cache antigo)', () => {
+  novaExecucao(); db_all_('Servicos');
+  // alguém apaga uma linha direto na planilha (cache ficou desatualizado)
+  const sh = MOCK.books[PropertiesService.getScriptProperties().getProperty('DB_ID')].getSheetByName('Servicos');
+  const alvo = sh.data[sh.data.length - 1][0];
+  sh.deleteRow(2);
+  novaExecucao(); db_update_('Servicos', alvo, { descricao: 'ok' });
+  novaExecucao(); _gen = { Servicos: -1 }; // força ler da planilha
+  const r = db_read_('Servicos', true).objs.find(x => x.id === alvo);
+  assert.strictEqual(r.descricao, 'ok');
+});
+
 console.log('\nGoogle Agenda de outro e-mail');
 t('lista agendas desta conta e esconde feriados', () => {
   const r = API(token, 'cfg.calendarios', {});

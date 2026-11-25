@@ -36,6 +36,27 @@ function rpc(fn, ...args) {
       .withFailureHandler(e => reject(new Error((e && e.message) || 'Falha de conexão. Verifique sua internet.')))[fn](...args);
   });
 }
+/* Guarda a última resposta de cada tela no aparelho: a tela abre na hora com o que
+   já tinha e se atualiza sozinha quando os dados novos chegam do Google. */
+const RC = {
+  chave: (a, p) => 'rc_' + (S.user ? S.user.id : '') + '_' + a + '_' + JSON.stringify(p || {}),
+  ler(a, p) { try { const v = localStorage.getItem(this.chave(a, p)); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+  gravar(a, p, d) { try { localStorage.setItem(this.chave(a, p), JSON.stringify(d)); } catch (e) { RC.limpar(); } },
+  limpar() { try { Object.keys(localStorage).filter(k => k.indexOf('rc_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {} }
+};
+async function callRapido(action, payload, desenhar, el) {
+  const salvo = RC.ler(action, payload);
+  if (salvo) { try { desenhar(salvo, true); } catch (e) { console.warn(e); } }
+  const d = await call(action, payload);
+  RC.gravar(action, payload, d);
+  if (el && !document.body.contains(el)) return d; // usuária já mudou de tela
+  if (!salvo || JSON.stringify(salvo) !== JSON.stringify(d)) {
+    const y = window.scrollY;
+    desenhar(d, false);
+    if (salvo) window.scrollTo(0, y);
+  }
+  return d;
+}
 async function call(action, payload) {
   try { return await rpc('api', S.token, action, payload || {}); }
   catch (e) { if (e.auth) sessaoExpirada(e.message); throw e; }
@@ -240,7 +261,7 @@ function perguntarPortal() {
       window.addEventListener('message', h);
       window.top.postMessage({ crm: 'pedir' }, '*');
     } catch (e) { return fim(null); }
-    setTimeout(() => fim(null), 700);
+    setTimeout(() => fim(null), 500);
   });
 }
 function avisarPortal(msg) {
@@ -253,6 +274,7 @@ function guardarToken(token, lembrar) {
 }
 function esquecerToken() {
   store.del('crm_token'); avisarPortal({ crm: 'limpar' });
+  RC.limpar(); store.del('rc_boot');
   try { sessionStorage.removeItem('crm_token'); } catch (e) {}
 }
 function sessaoExpirada(msg) {
@@ -279,16 +301,34 @@ async function iniciar() {
   });
   $('[data-eye]').addEventListener('click', () => { const i = $('#loginForm [name=senha]'); i.type = i.type === 'password' ? 'text' : 'password'; });
 
-  const doPortal = await perguntarPortal();
+  const pPortal = perguntarPortal();
   let sessao = null;
   try { sessao = sessionStorage.getItem('crm_token'); } catch (e) {}
-  S.token = store.get('crm_token') || doPortal || sessao;
+  S.token = store.get('crm_token') || sessao;
+  if (!S.token) S.token = await pPortal;        // só espera o portal se não tiver nada guardado aqui
+  else pPortal.then(() => { if (!sessao && S.token) guardarToken(S.token, true); });
   if (!S.token) return mostrarLogin();
   if (!sessao) guardarToken(S.token, true); // sincroniza aparelho e portal
   try { await carregar(); } catch (e) { if (!e.auth) mostrarLogin(e.message); }
 }
 async function carregar() {
-  const d = await call('boot');
+  let salvo = null;
+  try { salvo = JSON.parse(store.get('rc_boot') || 'null'); } catch (e) {}
+  const buscar = call('boot').then(d => { store.set('rc_boot', JSON.stringify(d)); return d; });
+  if (salvo && salvo.user) {
+    abrirPortal(salvo);
+    buscar.then(d => {
+      const mudouUsuario = d.user.id !== salvo.user.id || d.user.perfil !== salvo.user.perfil;
+      Object.assign(S, { user: d.user, cfg: d.cfg, servicos: d.servicos, equipe: d.equipe, clientes: d.clientes });
+      $('#brandName').textContent = S.cfg.studioNome || 'Studio CRM';
+      if (mudouUsuario) { montarShell(); ir('dashboard'); }
+      if (S.user.trocarSenha && !salvo.user.trocarSenha) trocarSenhaObrigatoria();
+    }).catch(e => { if (!e.auth) erroToast(e); });
+    return;
+  }
+  abrirPortal(await buscar);
+}
+function abrirPortal(d) {
   Object.assign(S, { user: d.user, cfg: d.cfg, servicos: d.servicos, equipe: d.equipe, clientes: d.clientes });
   S.dashMes = S.dashMes || hoje().slice(0, 7);
   S.finMes = S.finMes || hoje().slice(0, 7);
@@ -304,6 +344,7 @@ async function carregar() {
 }
 async function recarregarCadastros() {
   const d = await call('boot');
+  store.set('rc_boot', JSON.stringify(d));
   Object.assign(S, { cfg: d.cfg, servicos: d.servicos, equipe: d.equipe, clientes: d.clientes });
 }
 function trocarSenhaObrigatoria() {
@@ -396,7 +437,9 @@ function render() {
   $('#pageSub').textContent = n.sub ? n.sub() : '';
   const tema = $('[data-action=tema]');
   if (tema) tema.innerHTML = ico(temaAtual() === 'dark' ? 'sun' : 'moon') + `<span>${temaAtual() === 'dark' ? 'Tema claro' : 'Tema escuro'}</span>`;
-  const el = $('#page');
+  const antigo = $('#page');
+  const el = antigo.cloneNode(false); // elemento novo = sem ouvintes de cliques das telas anteriores
+  antigo.replaceWith(el);
   el.innerHTML = '<div class="loading-block"><div class="spinner"></div></div>';
   const fn = PAGES[S.page] || PAGES.dashboard;
   Promise.resolve(fn(el)).catch(e => { el.innerHTML = `<div class="card card-pad empty"><div class="big">😕</div>${esc(e.message)}</div>`; });
@@ -492,8 +535,10 @@ function top6(items) {
 const PAGES = {};
 
 /* ------------------------- Painel ------------------------- */
-PAGES.dashboard = async el => {
-  const d = await call('dashboard', { mes: S.dashMes });
+PAGES.dashboard = el => callRapido('dashboard', { mes: S.dashMes }, d => desenharPainel(el, d), el);
+function desenharPainel(el, d) {
+  limparCharts();
+  const caixa = document.createElement('div'); el.replaceChildren(caixa); el = caixa; // sem ouvintes duplicados ao redesenhar
   const atual = S.dashMes === hoje().slice(0, 7);
   const trend = d.variacao == null ? '' : `<span class="trend ${d.variacao >= 0 ? 'up' : 'down'}">${ico(d.variacao >= 0 ? 'up' : 'down')}${Math.abs(d.variacao).toLocaleString('pt-BR')}%</span>`;
   const kpis = isAdmin() ? `
@@ -681,9 +726,11 @@ PAGES.agenda = async el => {
 /** Agenda no celular: faixa de dias deslizável + lista do dia com horários livres. */
 async function agendaMobile(el) {
   S.agDia = S.agDia || hoje();
-  if (!S.agBase || S.agDia < S.agBase || S.agDia > addDias(S.agBase, 34)) S.agBase = addDias(S.agDia, -7);
-  const base = S.agBase, fimStrip = addDias(base, 41);
-  const r = await call('agenda.listar', { inicio: base, fim: fimStrip, externos: true });
+  if (!S.agBase || S.agDia < S.agBase || S.agDia > addDias(S.agBase, 20)) S.agBase = addDias(S.agDia, -7);
+  const base = S.agBase, fimStrip = addDias(base, 27); // 4 semanas
+  return callRapido('agenda.listar', { inicio: base, fim: fimStrip, externos: true }, r => montarAgendaMobile(el, r, base, fimStrip), el);
+}
+function montarAgendaMobile(el, r, base, fimStrip) {
   const equipeAtiva = S.equipe.filter(p => p.ativo !== 'nao');
   const porDia = {}, ext = {};
   r.agendamentos.forEach(a => { const k = a.inicio.slice(0, 10); (porDia[k] = porDia[k] || []).push(a); });
@@ -1063,8 +1110,9 @@ function enviarMensagem(cli, ag) {
 }
 
 /* ------------------------- Clientes ------------------------- */
-PAGES.clientes = async el => {
-  const lista = await call('clientes.listar');
+PAGES.clientes = el => callRapido('clientes.listar', {}, lista => desenharClientes(el, lista), el);
+function desenharClientes(el, lista) {
+  const qAntes = ($('#cliQ', el) || {}).value || '';
   const mesAtual = hoje().slice(5, 7);
   const filtros = {
     todas: () => true,
@@ -1110,6 +1158,7 @@ PAGES.clientes = async el => {
   };
   $('#cliQ').addEventListener('input', debounce(desenhar, 120));
   $$('#cliSeg button').forEach(b => b.addEventListener('click', () => { S.cliFiltro = b.dataset.f; $$('#cliSeg button').forEach(x => x.classList.toggle('active', x === b)); desenhar(); }));
+  $('#cliQ').value = qAntes;
   $('#bNovaCli').addEventListener('click', () => formCliente({}));
   body.addEventListener('click', e => { if (e.target.closest('[data-stop]')) return; const tr = e.target.closest('[data-cli]'); if (tr) fichaCliente(tr.dataset.cli); });
   desenhar();

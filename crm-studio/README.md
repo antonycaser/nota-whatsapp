@@ -125,6 +125,9 @@ No editor, rode **`reinstalarGatilhos`**. Confira também se **"Ligar mensagens 
 **Um horário não apareceu no Google Agenda.**
 Abra o agendamento e veja o status da sincronização. Em **Configurações → Reenviar horários futuros**, tudo é reenviado.
 
+**Editei a planilha direto e não apareceu no portal.**
+Para ficar rápido, o CRM guarda uma cópia das abas por até 5 minutos. O que você faz pelo portal aparece na hora. O que for editado direto na planilha pode levar até 5 minutos para aparecer.
+
 **Onde ficam meus dados? Como faço backup?**
 Na planilha (**Configurações → Abrir planilha de dados**). Para ter um backup, use **Arquivo → Fazer uma cópia**. Você pode filtrar e criar gráficos, mas não renomeie a primeira linha (cabeçalhos) das abas.
 

@@ -17,7 +17,7 @@
  *  terminam com "_" e o app só expõe: login(), api() e include().
  */
 
-var APP_VERSAO = '1.0.0';
+var APP_VERSAO = '1.1.0';
 
 /* ------------------------------------------------------------------ */
 /*  Web App                                                            */

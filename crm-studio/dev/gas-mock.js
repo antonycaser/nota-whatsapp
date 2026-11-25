@@ -96,7 +96,7 @@
     getLastRow() { return this.data.length; }
     getLastColumn() { return this.data.reduce((m, r) => Math.max(m, r.length), 0); }
     getMaxRows() { return 1000; }
-    getDataRange() { return new Range(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
+    getDataRange() { MOCK.leituras = (MOCK.leituras || 0) + 1; return new Range(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
     appendRow(row) { this.data.push(row.map(conv)); return this; }
     deleteRow(r) { this.data.splice(r - 1, 1); }
     setFrozenRows() {}
@@ -126,7 +126,9 @@
   }) };
   const cache = {};
   G.CacheService = { getScriptCache: () => ({
-    get: k => cache[k] === undefined ? null : cache[k], put: (k, v) => { cache[k] = String(v); }, remove: k => { delete cache[k]; }
+    get: k => cache[k] === undefined ? null : cache[k], put: (k, v) => { cache[k] = String(v); }, remove: k => { delete cache[k]; },
+    getAll: ks => { const o = {}; ks.forEach(k => { if (cache[k] !== undefined) o[k] = cache[k]; }); return o; },
+    putAll: (o) => { Object.keys(o).forEach(k => { if (String(o[k]).length > 100000) throw new Error('valor > 100KB'); cache[k] = String(o[k]); }); }
   }) };
   G.LockService = { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) };
   MOCK.props = props; MOCK.cache = cache;
