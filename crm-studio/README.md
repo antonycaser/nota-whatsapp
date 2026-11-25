@@ -37,9 +37,9 @@ Na pasta [`apps-script/`](apps-script/) estão todos os arquivos. No editor do A
 | `appsscript.json` | já existe: substitua o conteúdo |
 | `Code.gs` | já existe: substitua o conteúdo |
 | `Database.gs`, `Auth.gs`, `Config.gs`, `Cadastros.gs`, `Agenda.gs`, `Financeiro.gs`, `Relatorios.gs`, `WhatsApp.gs` | **+ → Script** (digite o nome **sem** `.gs`) |
-| `Index.html`, `Styles.html`, `Scripts.html` | **+ → HTML** (digite `Index`, `Styles` e `Scripts`) |
+| `Index.html`, `Brand.html`, `Styles.html`, `Scripts.html` | **+ → HTML** (digite `Index`, `Brand`, `Styles` e `Scripts`) |
 
-> Os nomes dos arquivos HTML precisam ser exatamente `Index`, `Styles` e `Scripts`.
+> Os nomes dos arquivos HTML precisam ser exatamente `Index`, `Brand`, `Styles` e `Scripts`.
 
 Clique em 💾 **Salvar**.
 
@@ -138,9 +138,12 @@ crm-studio/
 │   ├── Relatorios.gs     painel e relatórios
 │   ├── WhatsApp.gs       envio, automações, webhook (doPost)
 │   ├── Index.html        estrutura da página
+│   ├── Brand.html        logos da marca embutidas (gerado por dev/build-brand.py)
 │   ├── Styles.html       CSS (tema claro/escuro, responsivo)
 │   └── Scripts.html      front-end (SPA em JS puro + Chart.js + FullCalendar)
+├── marca/              ← logos originais (circular e horizontal)
 └── dev/                ← só para testar fora do Google
+    ├── build-brand.py    gera Brand.html a partir das logos (troque os PNGs e rode de novo)
     ├── gas-mock.js       simulador dos serviços do Apps Script
     ├── test.js           31 testes ponta a ponta do backend
     ├── seed.js           dados de demonstração

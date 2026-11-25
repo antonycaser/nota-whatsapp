@@ -98,16 +98,16 @@ function cli_excluir_(p) {
 function srv_seed_() {
   if (db_all_('Servicos').length) return;
   [
-    ['Maquiagem social', 'Maquiagem', 60, 180, '#c2457a'],
-    ['Maquiagem para madrinha', 'Maquiagem', 75, 220, '#c2457a'],
+    ['Maquiagem social', 'Maquiagem', 60, 180, '#0f7f7c'],
+    ['Maquiagem para madrinha', 'Maquiagem', 75, 220, '#0f7f7c'],
     ['Maquiagem de noiva', 'Noivas & Eventos', 120, 650, '#6a4ce2'],
-    ['Design de sobrancelha', 'Sobrancelha', 30, 50, '#f2a600'],
-    ['Design com henna', 'Sobrancelha', 45, 70, '#f2a600'],
-    ['Brow lamination', 'Sobrancelha', 60, 150, '#f2a600'],
-    ['Penteado social', 'Penteado', 60, 160, '#257de0'],
+    ['Design de sobrancelha', 'Sobrancelha', 30, 50, '#9c8074'],
+    ['Design com henna', 'Sobrancelha', 45, 70, '#9c8074'],
+    ['Brow lamination', 'Sobrancelha', 60, 150, '#9c8074'],
+    ['Penteado social', 'Penteado', 60, 160, '#e06a3a'],
     ['Penteado de noiva', 'Noivas & Eventos', 90, 450, '#6a4ce2'],
-    ['Escova modelada', 'Penteado', 45, 90, '#257de0'],
-    ['Cílios fio a fio', 'Cílios', 120, 180, '#00b894'],
+    ['Escova modelada', 'Penteado', 45, 90, '#e06a3a'],
+    ['Cílios fio a fio', 'Cílios', 120, 180, '#257de0'],
     ['Pacote Make + Penteado', 'Noivas & Eventos', 120, 320, '#6a4ce2']
   ].forEach(function (s) {
     db_insert_('Servicos', { nome: s[0], categoria: s[1], duracao: s[2], preco: s[3], custo: 0, cor: s[4], ativo: 'sim' });
@@ -119,7 +119,7 @@ function srv_salvar_(p) {
   var dados = {
     nome: String(p.nome).trim(), categoria: p.categoria || 'Outros',
     duracao: Math.max(5, Math.round(num_(p.duracao) || 60)), preco: round2_(num_(p.preco)),
-    custo: round2_(num_(p.custo)), cor: p.cor || '#c2457a', descricao: p.descricao || '',
+    custo: round2_(num_(p.custo)), cor: p.cor || '#0f7f7c', descricao: p.descricao || '',
     ativo: p.ativo === 'nao' ? 'nao' : 'sim'
   };
   var r = p.id ? db_update_('Servicos', p.id, dados) : db_insert_('Servicos', dados);
@@ -139,7 +139,7 @@ function prof_salvar_(p) {
   if (!String(p.nome || '').trim()) throw erro_('Informe o nome da profissional.');
   var dados = {
     nome: String(p.nome).trim(), telefone: fone_(p.telefone),
-    comissao: Math.min(100, Math.max(0, num_(p.comissao))), cor: p.cor || '#257de0',
+    comissao: Math.min(100, Math.max(0, num_(p.comissao))), cor: p.cor || '#9c8074',
     ativo: p.ativo === 'nao' ? 'nao' : 'sim'
   };
   return p.id ? db_update_('Profissionais', p.id, dados) : db_insert_('Profissionais', dados);

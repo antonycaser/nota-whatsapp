@@ -11,12 +11,12 @@
     usr_resetAdmin_();
     const admin = db_all_('Usuarios')[0];
     const salt = 'demo';
-    db_update_('Usuarios', admin.id, { nome: 'Camila Rocha', salt, hash: auth_hash_('demo1234', salt), trocarSenha: 'nao' });
-    cfg_gravar_(Object.assign(cfg_(), { studioNome: 'Studio Bella Make', responsavel: 'Camila', endereco: 'Rua Oscar Freire, 1200 – Jardins, São Paulo',
-      instagram: '@studiobellamake', telefone: '11999998888', pix: 'contato@studiobella.com', mostrarEventosGoogle: true }));
+    db_update_('Usuarios', admin.id, { nome: 'Lara Altoé', salt, hash: auth_hash_('demo1234', salt), trocarSenha: 'nao' });
+    cfg_gravar_(Object.assign(cfg_(), { studioNome: 'Lara Altoé Makeup & Beauty', responsavel: 'Lara', endereco: 'Rua Oscar Freire, 1200 – Jardins, São Paulo',
+      instagram: '@laraaltoe', telefone: '11999998888', pix: 'contato@laraaltoe.com', mostrarEventosGoogle: true }));
 
-    const julia = prof_salvar_({ nome: 'Júlia Martins', comissao: 40, cor: '#257de0' });
-    const camila = prof_salvar_({ nome: 'Camila Rocha', comissao: 0, cor: '#c2457a' });
+    const julia = prof_salvar_({ nome: 'Júlia Martins', comissao: 40, cor: '#9c8074' });
+    const camila = prof_salvar_({ nome: 'Lara Altoé', comissao: 0, cor: '#0f7f7c' });
     const servs = db_all_('Servicos');
     const S = n => servs.find(s => s.nome === n).id;
 

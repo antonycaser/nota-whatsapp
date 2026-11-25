@@ -86,7 +86,7 @@ function tplVars(cli, ag) {
   return v;
 }
 function inkFor(hex) {
-  const h = String(hex || '#c2457a').replace('#', '');
+  const h = String(hex || '#0f7f7c').replace('#', '');
   const r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
   return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#241b26' : '#ffffff';
 }
@@ -1052,7 +1052,7 @@ PAGES.servicos = async el => {
   $$('#segServ button').forEach(b => b.addEventListener('click', () => { S.abaServ = b.dataset.a; render(); }));
   $('#bNovo').addEventListener('click', () => aba === 'servicos' ? formServico({}) : formProf({}));
 };
-const CORES = ['#c2457a', '#257de0', '#f2a600', '#6a4ce2', '#00b894', '#f47230', '#8a7c87'];
+const CORES = ['#0f7f7c', '#9c8074', '#e06a3a', '#6a4ce2', '#257de0', '#c2457a', '#f2a600', '#5f6b6a'];
 const coresPicker = (sel) => `<div class="chips">${CORES.map(c => `<label style="cursor:pointer"><input type="radio" name="cor" value="${c}" ${c === sel ? 'checked' : ''} style="display:none">
   <span class="dot" style="width:28px;height:28px;background:${c};outline:${c === sel ? '3px solid var(--text)' : 'none'};outline-offset:2px" data-cor="${c}"></span></label>`).join('')}</div>`;
 function ligarCores(root) {

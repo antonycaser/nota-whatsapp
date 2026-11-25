@@ -7,7 +7,8 @@
   <title><?= studioNome ?> · CRM</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <?!= include('Brand'); ?>
   <?!= include('Styles'); ?>
 </head>
 <body>
@@ -15,8 +16,8 @@
   <section id="login" class="login hidden">
     <div class="login-art" aria-hidden="true">
       <div class="login-art-inner">
-        <div class="brand-mark big">✦</div>
-        <h2>Beleza organizada,<br>agenda sempre cheia.</h2>
+        <div class="logo logo-mark-light login-logo"></div>
+        <h2>Sua agenda organizada,<br>suas clientes encantadas.</h2>
         <p>Agenda integrada ao Google, lembretes automáticos no WhatsApp e o financeiro do seu studio em um só lugar.</p>
         <ul class="login-points">
           <li>Maquiagem · Sobrancelha · Penteado</li>
@@ -27,7 +28,7 @@
     </div>
     <div class="login-box">
       <form id="loginForm" class="login-card" autocomplete="on">
-        <div class="brand"><span class="brand-mark">✦</span><span class="brand-name"><?= studioNome ?></span></div>
+        <div class="logo logo-full login-card-logo" role="img" aria-label="<?= studioNome ?>"></div>
         <h1>Bem-vinda de volta</h1>
         <p class="muted">Entre com seu usuário e senha para acessar o portal.</p>
         <label class="field"><span>Usuário</span>
@@ -49,7 +50,7 @@
   <!-- APP -->
   <div id="shell" class="shell hidden">
     <aside id="sidebar" class="sidebar">
-      <div class="brand"><span class="brand-mark">✦</span><span class="brand-name" id="brandName"><?= studioNome ?></span></div>
+      <div class="brand"><div class="logo logo-full-light side-logo" role="img" aria-label="<?= studioNome ?>"></div><span class="sr-only" id="brandName"><?= studioNome ?></span></div>
       <nav id="nav" class="nav"></nav>
       <div class="sidebar-foot">
         <button class="nav-item" data-action="tema"><span class="ico" data-ico="moon"></span><span>Tema</span></button>

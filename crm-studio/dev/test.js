@@ -105,7 +105,7 @@ t('agendamento com 2 serviços cria evento no Google Agenda', () => {
   const ev = Object.values(MOCK.events)[0];
   assert(ev.title.includes('Ana Souza') && ev.title.includes('Maquiagem social + Penteado social'));
   assert(ev.desc.includes('cola de cílios'), 'alergia na descrição do evento');
-  assert.strictEqual(ev.color, '3');
+  assert.strictEqual(ev.color, '7');
 });
 t('sinal virou lançamento de receita', () => {
   const l = db_all_('Financeiro').filter(x => x.agendamentoId === ag1.id);

@@ -27,7 +27,8 @@ try { seedDemo(); } catch (e) { console.error('seed', e); }
 `;
 const end = (s, tag) => s.split('</' + tag + '>').join('<\\/' + tag + '>');
 let html = rd('Index.html')
-  .replace(/<\?= studioNome \?>/g, 'Studio Bella Make')
+  .replace(/<\?= studioNome \?>/g, 'Lara Altoé Makeup & Beauty')
+  .replace("<?!= include('Brand'); ?>", () => rd('Brand.html'))
   .replace("<?!= include('Styles'); ?>", () => rd('Styles.html'))
   .replace("<?!= include('Scripts'); ?>", () =>
     '<script>window.__NO_FAKE_DATE = true;\n' + end(mock, 'script') + '\n' + end(gs, 'script') + '\n' + end(seed, 'script') + '\n' + shim + '</script>\n' + rd('Scripts.html'));

@@ -15,7 +15,7 @@ function ag_view_(a, mapas) {
   return {
     id: a.id, clienteId: a.clienteId, clienteNome: cli.nome || a.clienteNome, telefone: cli.telefone || a.telefone,
     servicos: servs, servicoNomes: a.servicoNomes, categoria: (servs[0] && servs[0].categoria) || '',
-    cor: (prof.cor && mapas.porProfissional) ? prof.cor : ((servs[0] && servs[0].cor) || '#c2457a'),
+    cor: (prof.cor && mapas.porProfissional) ? prof.cor : ((servs[0] && servs[0].cor) || '#0f7f7c'),
     profissionalId: a.profissionalId, profissionalNome: prof.nome || '',
     inicio: a.inicio.slice(0, 16), fim: a.fim.slice(0, 16), status: a.status,
     valor: num_(a.valor), desconto: num_(a.desconto), sinal: num_(a.sinal),
@@ -220,8 +220,8 @@ function cal_() {
 }
 
 var COR_CATEGORIA = {
-  'Maquiagem': 'MAUVE', 'Sobrancelha': 'YELLOW', 'Penteado': 'PALE_BLUE', 'Cílios': 'CYAN',
-  'Noivas & Eventos': 'RED', 'Outros': 'GRAY'
+  'Maquiagem': 'CYAN', 'Sobrancelha': 'PALE_RED', 'Penteado': 'ORANGE', 'Cílios': 'BLUE',
+  'Noivas & Eventos': 'MAUVE', 'Outros': 'GRAY'
 };
 
 /** Cria/atualiza/remove o evento na agenda. Nunca lança erro — grava syncStatus. */
@@ -271,7 +271,7 @@ function ag_sync_(a) {
         ev.setLocation(local);
       }
       var cor = a.status === 'concluido' ? 'GREEN' : a.status === 'faltou' ? 'GRAY'
-        : (COR_CATEGORIA[(servs[0] || {}).categoria] || 'MAUVE');
+        : (COR_CATEGORIA[(servs[0] || {}).categoria] || 'CYAN');
       try { ev.setColor(CalendarApp.EventColor[cor]); } catch (e) {}
       patch = { eventId: ev.getId(), syncStatus: 'ok' };
     }

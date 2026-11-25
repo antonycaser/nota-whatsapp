@@ -35,7 +35,7 @@ function doGet(e) {
 
 /** Inclui um arquivo HTML dentro do template (Styles / Scripts). */
 function include(nome) {
-  var permitidos = ['Styles', 'Scripts'];
+  var permitidos = ['Brand', 'Styles', 'Scripts'];
   if (permitidos.indexOf(nome) < 0) return '';
   return HtmlService.createHtmlOutputFromFile(nome).getContent();
 }

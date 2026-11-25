@@ -5,7 +5,7 @@
  */
 
 var CFG_PADRAO = {
-  studioNome: 'Meu Studio',
+  studioNome: 'Lara Altoé Makeup & Beauty',
   responsavel: '',
   telefone: '',
   endereco: '',
