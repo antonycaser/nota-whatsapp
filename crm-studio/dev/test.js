@@ -352,6 +352,42 @@ t('mantém o endereço do evento e desfaz a importação devolvendo o original',
   assert(de_novo.eventos.some(x => x.eventId === ev.id), 'pode ser importado de novo');
   ev.deleteEvent();
 });
+t('histórico: passados entram como concluídos, lançam no caixa e não repetem cliente', () => {
+  const d1 = local(new Date(Date.now() - 40 * 86400000)), d2 = local(new Date(Date.now() - 20 * 86400000));
+  const e1 = MOCK.addExterno('Juliana Prado sobrancelha', new Date(d1 + 'T10:00'), new Date(d1 + 'T10:30'), {});
+  const e2 = MOCK.addExterno('Juliana Prado henna', new Date(d2 + 'T10:00'), new Date(d2 + 'T10:45'), {});
+  const e3 = MOCK.addExterno('Gabi Rocha', new Date(d2 + 'T15:00'), new Date(d2 + 'T16:00'), {});
+  const r = API(token, 'agenda.importarPrevia', { inicio: d1, fim: d2 });
+  const sug = e => r.eventos.find(x => x.eventId === e.id);
+  assert.strictEqual(sug(e3).provavel, false, 'só nome, sem cliente/serviço: fica desmarcado');
+  const clientesAntes = db_all_('Clientes').length;
+  const itens = [e1, e2, e3].map(e => ({ eventId: e.id, novaCliente: { nome: sug(e).clienteId ? '' : sug(e).nomeNovo }, clienteId: sug(e).clienteId,
+    servicoIds: sug(e).servicoIds.length ? sug(e).servicoIds : [servSob.id] }));
+  const res = API(token, 'agenda.importar', { itens, renomear: true, lancarPassados: true });
+  assert.strictEqual(res.erros.length, 0, JSON.stringify(res.erros));
+  assert.strictEqual(res.importados, 3);
+  assert.strictEqual(res.lancados, 3);
+  const novas = db_all_('Clientes').length - clientesAntes;
+  assert(novas <= 2, 'Juliana Prado cadastrada uma vez só (novas: ' + novas + ')');
+  assert.strictEqual(db_all_('Clientes').filter(c => c.nome === 'Juliana Prado').length, 1);
+  const ags = db_all_('Agendamentos').filter(a => [e1.id, e2.id, e3.id].includes(a.eventId));
+  assert(ags.every(a => a.status === 'concluido'));
+  assert.strictEqual(e1.title, 'Juliana Prado sobrancelha', 'evento antigo não foi alterado');
+  const l = db_all_('Financeiro').find(x => x.agendamentoId === ags[0].id);
+  assert(l && l.status === 'pago' && l.data === ags[0].inicio.slice(0, 10) && l.forma === 'Não informado');
+  const rel = API(token, 'relatorio', { inicio: d1, fim: d2 });
+  assert(rel.resumo.receitas >= ags.reduce((s, a) => s + a.valor, 0), 'faturamento do período inclui o histórico');
+  ags.forEach(a => API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' }));
+});
+t('histórico sem lançar no financeiro', () => {
+  const d = local(new Date(Date.now() - 50 * 86400000));
+  const e = MOCK.addExterno('Ana Souza penteado', new Date(d + 'T09:00'), new Date(d + 'T10:00'), {});
+  const res = API(token, 'agenda.importar', { itens: [{ eventId: e.id, clienteId: ana.id, servicoIds: [servPent.id] }], lancarPassados: false });
+  assert.strictEqual(res.importados, 1); assert(!res.lancados);
+  const a = db_all_('Agendamentos').find(x => x.eventId === e.id);
+  assert.strictEqual(db_all_('Financeiro').filter(x => x.agendamentoId === a.id).length, 0);
+  API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' });
+});
 t('evento que se repete não é importado', () => {
   const dia = local(em(3 * 24 * 60));
   const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });

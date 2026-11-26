@@ -1982,11 +1982,18 @@ async function importarGoogle() {
   const m = modal({
     title: 'Importar do Google Agenda', wide: true,
     body: `<div class="alert info">${ico('calendar')}<div>Traz para o CRM os horários que já estão no seu Google Agenda. <b>Nada é duplicado</b>: o mesmo evento passa a ser controlado pelo CRM (lembretes, financeiro, histórico da cliente).</div></div>
+      <div class="chips" id="impPer" style="margin-bottom:12px">
+        <button type="button" class="chip" data-per="-365,0">Último ano (histórico)</button>
+        <button type="button" class="chip" data-per="ano">Este ano</button>
+        <button type="button" class="chip on" data-per="-30,180">Próximos meses</button>
+      </div>
       <div class="grid-3" style="align-items:end">
         <label class="field"><span>De</span><input type="date" id="impIni" value="${addDias(hj, -30)}"></label>
         <label class="field"><span>Até</span><input type="date" id="impFim" value="${addDias(hj, 180)}"></label>
         <div class="field"><button class="btn primary" id="impBuscar">${ico('search')}Buscar eventos</button></div>
       </div>
+      <label class="switch"><input type="checkbox" id="impLancar" checked><span>Lançar no financeiro os atendimentos que <b>já passaram</b> (como recebidos)</span></label>
+      <p class="muted tiny" style="margin:-6px 0 12px">Assim os gráficos de faturamento mostram o histórico. Os eventos antigos não são alterados no Google Agenda.</p>
       <div id="impLista"></div>`,
     foot: `<label class="switch left" style="margin:0"><input type="checkbox" id="impRenomear" checked><span class="tiny">Padronizar o título no Google Agenda</span></label>
       <button class="btn" data-close>Fechar</button><button class="btn primary" id="impOk" disabled>Importar</button>`
@@ -2011,7 +2018,7 @@ async function importarGoogle() {
       <label class="imp-top"><input type="checkbox" data-sel ${ev.provavel ? 'checked' : ''} ${ev.recorrente ? 'disabled' : ''}>
         <div class="grow"><b style="text-transform:capitalize">${DIAS_ABREV[new Date(ev.inicio.slice(0, 10) + 'T12:00').getDay()]} ${fDataCurta(ev.inicio)} · ${fHora(ev.inicio)}–${fHora(ev.fim)}</b>
           <div class="muted" style="font-size:13px">${esc(ev.titulo || '(sem título)')}</div>
-          ${ev.recorrente ? '<span class="tag">evento que se repete — importe pelo CRM</span>' : !ev.provavel ? '<span class="tag">parece compromisso pessoal</span>' : ''}
+          ${ev.recorrente ? '<span class="tag">evento que se repete — importe pelo CRM</span>' : !ev.provavel ? '<span class="tag tag-pessoal">parece compromisso pessoal</span>' : ''}
           ${passado && !ev.recorrente ? '<span class="tag">já passou · entra como concluído</span>' : ''}</div></label>
       <div class="imp-campos">
         <select data-cli>${cliOpts}</select>
@@ -2032,13 +2039,27 @@ async function importarGoogle() {
       const prov = eventos.filter(x => x.provavel).length;
       lista.innerHTML = `<div class="imp-resumo"><span><b>${eventos.length}</b> evento(s) em “${esc(r.agenda)}” · <b>${prov}</b> parecem atendimentos</span>
           <span><button class="btn sm ghost" data-todos="1">Marcar todos</button><button class="btn sm ghost" data-todos="0">Desmarcar</button></span></div>
-        <p class="muted tiny" style="margin:0 0 10px">Confira a cliente e o serviço de cada um. Os que não estiverem marcados ficam como compromisso pessoal.</p>`
+        <p class="muted tiny" style="margin:0 0 10px">Confira a cliente e o serviço de cada um. Os que não estiverem marcados ficam como compromisso pessoal. A mesma cliente em vários eventos é cadastrada uma vez só.</p>
+        <div class="imp-massa"><span class="tiny muted">Serviço para os marcados que estão sem serviço:</span>
+          <select id="impMassa"><option value="">Escolher…</option>${servAtivos.map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}</select></div>`
         + eventos.map(linha).join('') + (r.total > eventos.length ? `<p class="muted tiny">Mostrando os primeiros ${eventos.length} de ${r.total}. Diminua o período para ver o resto.</p>` : '');
       contar();
     } catch (err) { erroToast(err); }
   }));
 
+  $$('#impPer [data-per]', m.el).forEach(b => b.addEventListener('click', () => {
+    $$('#impPer [data-per]', m.el).forEach(x => x.classList.toggle('on', x === b));
+    if (b.dataset.per === 'ano') { $('#impIni', m.el).value = hj.slice(0, 4) + '-01-01'; $('#impFim', m.el).value = hj; }
+    else { const [a, z] = b.dataset.per.split(',').map(Number); $('#impIni', m.el).value = addDias(hj, a); $('#impFim', m.el).value = addDias(hj, z); }
+  }));
   lista.addEventListener('change', e => {
+    if (e.target.id === 'impMassa' && e.target.value) {
+      let n = 0;
+      selecionados().forEach(r => { const ev = eventos[Number(r.dataset.i)]; if (!ev.sel.length) { ev.sel.push(e.target.value); redesenharServ(r); n++; } });
+      toast(n ? `Serviço aplicado em ${n} evento(s)` : 'Todos os marcados já têm serviço');
+      e.target.value = '';
+      return;
+    }
     const row = e.target.closest('.imp-item'); if (!row) return;
     if (e.target.matches('[data-sel]')) { row.classList.toggle('off', !e.target.checked); contar(); }
     if (e.target.matches('[data-cli]')) $('.imp-novo', row).classList.toggle('hidden', e.target.value !== '__novo');
@@ -2069,19 +2090,19 @@ async function importarGoogle() {
       } else it.clienteId = cli;
       itens.push(it);
     }
-    const renomear = $('#impRenomear', m.el).checked;
+    const renomear = $('#impRenomear', m.el).checked, lancarPassados = $('#impLancar', m.el).checked;
     const tot = { importados: 0, clientesNovas: 0, erros: [] };
     for (let i = 0; i < itens.length; i += 20) {
       btnOk.innerHTML = `<span class="spinner sm"></span> ${Math.min(i + 20, itens.length)}/${itens.length}`;
       try {
-        const r = await call('agenda.importar', { itens: itens.slice(i, i + 20), renomear });
-        tot.importados += r.importados; tot.clientesNovas += r.clientesNovas; tot.erros = tot.erros.concat(r.erros);
+        const r = await call('agenda.importar', { itens: itens.slice(i, i + 20), renomear, lancarPassados });
+        tot.importados += r.importados; tot.clientesNovas += r.clientesNovas; tot.lancados = (tot.lancados || 0) + (r.lancados || 0); tot.erros = tot.erros.concat(r.erros);
       } catch (err) { erroToast(err); break; }
     }
     await recarregarCadastros();
     RC.limpar();
     m.close();
-    toast(`${tot.importados} atendimento(s) importado(s)${tot.clientesNovas ? ` · ${tot.clientesNovas} cliente(s) nova(s)` : ''} ✅`);
+    toast(`${tot.importados} atendimento(s) importado(s)${tot.clientesNovas ? ` · ${tot.clientesNovas} cliente(s) nova(s)` : ''}${tot.lancados ? ` · ${tot.lancados} lançado(s) no financeiro` : ''} ✅`);
     if (tot.erros.length) setTimeout(() => toast(`${tot.erros.length} não foram importados: ${tot.erros.slice(0, 3).map(x => x.erro).join('; ')}`, 'err'), 600);
     render();
   }));

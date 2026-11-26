@@ -110,7 +110,7 @@ function imp_previa_(p) {
     });
   });
   out.sort(function (a, b) { return a.inicio < b.inicio ? -1 : 1; });
-  return { eventos: out.slice(0, 400), total: out.length, agenda: cal.getName(), inicio: ini, fim: fim };
+  return { eventos: out.slice(0, 600), total: out.length, agenda: cal.getName(), inicio: ini, fim: fim };
 }
 
 /** Adivinha cliente, serviço e valor a partir do título/descrição do evento. */
@@ -197,8 +197,9 @@ function imp_importar_(p) {
       var clienteId = it.clienteId;
       if (!clienteId) {
         if (!it.novaCliente || !String(it.novaCliente.nome || '').trim()) throw new Error('informe a cliente');
-        clienteId = cli_salvar_({ nome: it.novaCliente.nome, telefone: it.novaCliente.telefone, forcar: true }).id;
-        res.clientesNovas++;
+        var achada = imp_acharOuCriarCliente_(it.novaCliente.nome, it.novaCliente.telefone);
+        clienteId = achada.id;
+        if (achada.nova) res.clientesNovas++;
       }
       var cli = db_get_('Clientes', clienteId);
       if (!cli) throw new Error('cliente não encontrada');
@@ -228,7 +229,15 @@ function imp_importar_(p) {
         observacoes: ('Importado do Google Agenda: "' + titulo + '"' + (original ? '\n' + original : '')).slice(0, 3000),
         eventId: it.eventId, syncStatus: 'ok', origem: origem
       });
-      if (p.renomear !== false) ag_sync_(a);
+      if (a.status === 'concluido') {
+        // histórico: não mexe no evento antigo da agenda; opcionalmente lança o valor como recebido
+        if (p.lancarPassados) {
+          var lanc = fin_doAtendimento_(a, 'Não informado', true);
+          if (lanc) { db_update_('Agendamentos', a.id, { lancamentoId: lanc.id }); res.lancados = (res.lancados || 0) + 1; }
+        }
+      } else if (p.renomear !== false) {
+        ag_sync_(a);
+      }
       ligados[it.eventId] = 1;
       res.importados++;
     } catch (e) {
@@ -236,6 +245,30 @@ function imp_importar_(p) {
     }
   });
   return res;
+}
+
+/**
+ * Usa a cliente que já existe (mesmo telefone ou mesmo nome completo) ou cadastra uma nova.
+ * Evita criar a mesma cliente várias vezes ao importar o histórico.
+ */
+function imp_acharOuCriarCliente_(nome, telefone) {
+  nome = String(nome || '').trim();
+  var tel = fone_(telefone);
+  var todos = db_all_('Clientes');
+  var achada = null;
+  if (tel && tel.length >= 12) {
+    var k = foneChave_(tel);
+    achada = todos.filter(function (c) { return c.telefone && foneChave_(c.telefone) === k; })[0] || null;
+  }
+  if (!achada) {
+    var n = norm_(nome);
+    achada = todos.filter(function (c) { return norm_(c.nome) === n; })[0] || null;
+  }
+  if (achada) {
+    if (tel && tel.length >= 12 && !achada.telefone) db_update_('Clientes', achada.id, { telefone: tel });
+    return { id: achada.id, nova: false };
+  }
+  return { id: cli_salvar_({ nome: nome, telefone: tel, forcar: true }).id, nova: true };
 }
 
 /**

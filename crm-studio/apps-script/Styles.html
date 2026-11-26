@@ -456,10 +456,13 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .mes-dots em { width: 6px; height: 6px; border-radius: 50%; }
 .mes-dots em.ext { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .mes-dots small { font-size: 9px; font-weight: 700; color: var(--muted); line-height: 1; margin-left: 1px; }
+.imp-massa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.imp-massa select { width: auto; min-width: 200px; flex: 1; }
 .imp-resumo { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; }
 .imp-item { border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface); }
 .imp-item.off { background: var(--surface-2); }
 .imp-item.off .imp-campos { display: none; }
+.imp-item:not(.off) .tag-pessoal { display: none; }
 .imp-top { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .imp-top input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
 .imp-top .tag { margin-top: 4px; }
