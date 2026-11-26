@@ -340,6 +340,7 @@ open(os.path.join(SAIDA, 'styles.css'), 'w', encoding='utf-8').write(estilos)
 open(os.path.join(SAIDA, 'brand.css'), 'w', encoding='utf-8').write(brand)
 for f in ['favicon.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'manifest.webmanifest']:
     shutil.copy(os.path.join(PORTAL, f), os.path.join(SAIDA, f))
+shutil.copy(os.path.join(AQUI, '..', 'paginas', 'privacidade.html'), os.path.join(SAIDA, 'privacidade.html'))
 cfg = os.path.join(SAIDA, 'config.js')
 if not os.path.exists(cfg):
     open(cfg, 'w').write("window.CRM_CONFIG = { url: 'https://SEU-PROJETO.supabase.co', chave: 'sb_publishable_...' };\n")
