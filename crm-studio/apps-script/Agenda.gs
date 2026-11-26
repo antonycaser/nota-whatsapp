@@ -75,13 +75,25 @@ function ag_obter_(p) {
 
 /**
  * O que fazer com o dinheiro já lançado quando um atendimento sai da agenda.
- * financeiro: 'remover' (padrão) tira tudo do caixa; 'manter' deixa o que já foi pago
- * (ex.: sinal não devolvido) e só apaga o que estava pendente.
+ * financeiro:
+ *  - '' / 'padrao' → segue a regra do studio: o SINAL PAGO FICA no caixa (configurável),
+ *                     o resto (pagamento do atendimento, pendências) sai;
+ *  - 'remover'     → tira tudo do caixa (ex.: devolveu o sinal);
+ *  - 'manter'      → deixa tudo o que já foi pago.
  */
 function ag_tratarFinanceiro_(agId, financeiro) {
-  var manter = financeiro === 'manter';
+  var reterSinal = cfg_().sinalRetido !== false;
+  var ag = db_get_('Agendamentos', agId) || {};
   fin_doAgendamento_(agId).forEach(function (l) {
-    if (!manter || l.status !== 'pago') db_delete_('Financeiro', l.id);
+    var pago = l.status === 'pago';
+    var ehSinal = l.categoria === 'Sinal / Reserva';
+    var fica = financeiro === 'manter' ? pago
+      : financeiro === 'remover' ? false
+      : (pago && ehSinal && reterSinal);
+    if (!fica) { db_delete_('Financeiro', l.id); return; }
+    if (ehSinal && !/^Sinal retido/.test(l.descricao)) {
+      db_update_('Financeiro', l.id, { descricao: 'Sinal retido (cancelou) — ' + (ag.clienteNome || '').trim() });
+    }
   });
 }
 

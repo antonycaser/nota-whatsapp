@@ -23,6 +23,7 @@ var CFG_PADRAO = {
   horaFechamento: '20:00',
   intervaloAgenda: 15,
   diasInativa: 60,
+  sinalRetido: true,   // o sinal fica com o studio quando a cliente cancela/falta
 
   // Listas
   categoriasServico: ['Maquiagem', 'Sobrancelha', 'Penteado', 'Cílios', 'Noivas & Eventos', 'Outros'],
@@ -98,7 +99,7 @@ function cfg_publica_(c) {
     instagram: c.instagram, pix: c.pix,
     calendarAtivo: c.calendarAtivo, mostrarEventosGoogle: c.mostrarEventosGoogle,
     horaAbertura: c.horaAbertura, horaFechamento: c.horaFechamento, intervaloAgenda: c.intervaloAgenda,
-    diasInativa: c.diasInativa,
+    diasInativa: c.diasInativa, sinalRetido: c.sinalRetido !== false,
     categoriasServico: c.categoriasServico, categoriasReceita: c.categoriasReceita,
     categoriasDespesa: c.categoriasDespesa, formasPagamento: c.formasPagamento, locais: c.locais,
     waAtivo: !!(c.wa.ativo && waSecret_().provedor), waConfirmacao: c.wa.confirmacao,
@@ -118,7 +119,7 @@ function cfg_save_(p) {
   var calAntes = c.calendarId;
   var permitidos = ['studioNome', 'responsavel', 'telefone', 'endereco', 'instagram', 'pix',
     'calendarAtivo', 'calendarId', 'mostrarEventosGoogle', 'lembreteAgendaMin',
-    'horaAbertura', 'horaFechamento', 'intervaloAgenda', 'diasInativa',
+    'horaAbertura', 'horaFechamento', 'intervaloAgenda', 'diasInativa', 'sinalRetido',
     'categoriasServico', 'categoriasReceita', 'categoriasDespesa', 'formasPagamento', 'locais'];
   permitidos.forEach(function (k) {
     if (p[k] === undefined) return;

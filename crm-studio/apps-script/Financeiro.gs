@@ -33,7 +33,9 @@ function fin_listar_(p) {
     l.clienteNome = clientes[l.clienteId] || '';
     l.atrasado = l.status === 'pendente' && (l.vencimento || l.data) < hoje_();
     // dinheiro de atendimento que não existe mais (excluído antes desta correção) ou foi cancelado
-    if (l.agendamentoId) l.agAviso = !ags[l.agendamentoId] ? 'atendimento excluído' : ags[l.agendamentoId] === 'cancelado' ? 'atendimento cancelado' : '';
+    if (l.agendamentoId && !/^Sinal retido/.test(l.descricao)) {
+      l.agAviso = !ags[l.agendamentoId] ? 'atendimento excluído' : ags[l.agendamentoId] === 'cancelado' ? 'atendimento cancelado' : '';
+    }
     return l;
   }).sort(function (a, b) { return a.data < b.data ? 1 : -1; });
 

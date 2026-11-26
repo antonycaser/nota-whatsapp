@@ -125,6 +125,9 @@ No editor, rode **`reinstalarGatilhos`**. Confira também se **"Ligar mensagens 
 **Um horário não apareceu no Google Agenda.**
 Abra o agendamento e veja o status da sincronização. Em **Configurações → Reenviar horários futuros**, tudo é reenviado.
 
+**A cliente cancelou. O que acontece com o sinal?**
+Por padrão, o **sinal não é devolvido**: ao cancelar ou excluir o horário, o sinal fica no caixa (aparece como *"Sinal retido (cancelou)"*) e só o restante sai do financeiro. Se em algum caso você devolver, toque em **"Devolvi o sinal"**. Para mudar essa regra, use **Configurações → Agenda e funcionamento**.
+
 **Editei a planilha direto e não apareceu no portal.**
 Para ficar rápido, o CRM guarda uma cópia das abas por até 5 minutos. O que você faz pelo portal aparece na hora. O que for editado direto na planilha pode levar até 5 minutos para aparecer.
 

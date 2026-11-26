@@ -169,6 +169,28 @@ t('cancelar tira o sinal e o pagamento do caixa', () => {
   API(token, 'agenda.status', { id: a.id, status: 'cancelado', financeiro: 'remover' });
   assert.strictEqual(somaAg(a.id), 0);
 });
+t('regra do studio: cancelar fica com o sinal e tira só o pagamento', () => {
+  const a = novoAg({ sinal: 20 }); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
+  API(token, 'agenda.status', { id: a.id, status: 'cancelado', financeiro: 'padrao' });
+  assert.strictEqual(somaAg(a.id), 20);
+  const l = db_all_('Financeiro').find(x => x.agendamentoId === a.id);
+  assert(/^Sinal retido/.test(l.descricao));
+  const r = API(token, 'fin.listar', { inicio: l.data, fim: l.data });
+  assert(!r.lancamentos.find(x => x.id === l.id).agAviso, 'sinal retido não aparece como pendência');
+});
+t('regra do studio: excluir só com sinal mantém o sinal', () => {
+  const a = novoAg({ sinal: 40 });
+  API(token, 'agenda.excluir', { id: a.id, financeiro: 'padrao' });
+  assert.strictEqual(somaAg(a.id), 40);
+});
+t('com a regra desligada, cancelar devolve o sinal', () => {
+  API(token, 'cfg.salvar', { sinalRetido: false });
+  assert.strictEqual(API(token, 'boot').cfg.sinalRetido, false);
+  const a = novoAg({ sinal: 15 });
+  API(token, 'agenda.status', { id: a.id, status: 'cancelado', financeiro: 'padrao' });
+  assert.strictEqual(somaAg(a.id), 0);
+  API(token, 'cfg.salvar', { sinalRetido: true });
+});
 t('desfazer finalização tira só o pagamento (sinal fica)', () => {
   const a = novoAg({ sinal: 20 }); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
   API(token, 'agenda.status', { id: a.id, status: 'confirmado' });

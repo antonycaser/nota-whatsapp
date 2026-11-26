@@ -220,19 +220,48 @@ function escolher(msg, botoes, titulo) {
     obs.observe($('#modalRoot'), { childList: true });
   });
 }
-/** Ao cancelar/excluir: pergunta o que fazer com o dinheiro que já entrou no caixa. */
+/**
+ * Ao cancelar/excluir: decide o que fazer com o dinheiro que já entrou no caixa.
+ * Regra do studio (Configurações): o sinal NÃO é devolvido — fica no caixa automaticamente.
+ */
 async function perguntarFinanceiro(a, acao) {
-  const f = a.financeiro || { pago: 0 };
-  const texto = acao === 'excluir' ? 'Excluir definitivamente este agendamento? <span class="muted">(Para manter o histórico, prefira “Cancelar”.)</span>' : 'Cancelar este horário? Ele será removido do Google Agenda.';
+  const f = a.financeiro || { pago: 0, sinal: 0 };
+  const excluir = acao === 'excluir';
+  const titulo = excluir ? 'Excluir agendamento' : 'Cancelar horário';
+  const texto = excluir ? 'Excluir definitivamente este agendamento? <span class="muted">(Para manter o histórico, prefira “Cancelar”.)</span>' : 'Cancelar este horário? Ele será removido do Google Agenda.';
+  const verbo = excluir ? 'Excluir' : 'Cancelar';
+  const reter = S.cfg.sinalRetido !== false;
+  const sinal = f.sinal || 0, resto = Math.max(0, (f.pago || 0) - sinal);
+
   if (!f.pago) {
-    const ok = await confirmar(texto, { ok: acao === 'excluir' ? 'Excluir' : 'Cancelar horário', perigo: true });
-    return ok ? 'remover' : null;
+    const ok = await confirmar(texto, { ok: excluir ? 'Excluir' : 'Cancelar horário', perigo: true });
+    return ok ? 'padrao' : null;
   }
-  const detalhe = f.sinal && f.sinal < f.pago ? ` (sendo ${brl(f.sinal)} de sinal)` : f.sinal ? ' (sinal)' : '';
-  return escolher(`${texto}<div class="alert warn" style="margin:14px 0 0">${ico('wallet')}<div>Este atendimento tem <b>${brl(f.pago)}</b>${detalhe} lançado no financeiro. O que fazer com esse valor?</div></div>`, [
+  if (reter && sinal && !resto) {
+    // só tem sinal pago → fica com o studio
+    return escolher(`${texto}<div class="alert info" style="margin:14px 0 0">${ico('wallet')}<div>O <b>sinal de ${brl(sinal)}</b> fica com você e continua no caixa.</div></div>`, [
+      { v: 'remover', l: 'Devolvi o sinal', cls: 'ghost' },
+      { v: 'padrao', l: `${verbo} e ficar com o sinal`, cls: 'primary' }
+    ], titulo);
+  }
+  if (reter && sinal && resto) {
+    return escolher(`${texto}<div class="alert warn" style="margin:14px 0 0">${ico('wallet')}<div>Este atendimento tem <b>${brl(f.pago)}</b> no caixa: <b>${brl(sinal)}</b> de sinal e <b>${brl(resto)}</b> de pagamento.</div></div>`, [
+      { v: 'remover', l: 'Tirar tudo (devolvi)', cls: 'ghost' },
+      { v: 'manter', l: 'Manter tudo' },
+      { v: 'padrao', l: `Tirar ${brl(resto)} e ficar com o sinal`, cls: 'primary' }
+    ], titulo);
+  }
+  return escolher(`${texto}<div class="alert warn" style="margin:14px 0 0">${ico('wallet')}<div>Este atendimento tem <b>${brl(f.pago)}</b> lançado no financeiro. O que fazer com esse valor?</div></div>`, [
     { v: 'manter', l: 'Manter no caixa' },
     { v: 'remover', l: `Tirar ${brl(f.pago)} do caixa`, cls: 'danger' }
-  ], acao === 'excluir' ? 'Excluir agendamento' : 'Cancelar horário');
+  ], titulo);
+}
+function avisoFinanceiro(a, financeiro, base) {
+  const f = a.financeiro || {};
+  if (!f.pago) return base;
+  if (financeiro === 'padrao' && S.cfg.sinalRetido !== false && f.sinal) return base + ` · sinal de ${brl(f.sinal)} ficou no caixa`;
+  if (financeiro === 'remover') return base + ' · valor retirado do caixa';
+  return base;
 }
 function formData(form) {
   const o = {};
@@ -990,7 +1019,7 @@ function formAgendamento(pre, depois) {
       <div class="grid-3">
         <label class="field"><span>Valor (R$)</span><input name="valor" inputmode="decimal" value="${pre.valor != null ? esc(String(pre.valor).replace('.', ',')) : ''}"></label>
         <label class="field"><span>Desconto (R$)</span><input name="desconto" inputmode="decimal" value="${pre.desconto ? esc(String(pre.desconto).replace('.', ',')) : ''}"></label>
-        <label class="field"><span>Sinal pago (R$)</span><input name="sinal" inputmode="decimal" value="${pre.sinal ? esc(String(pre.sinal).replace('.', ',')) : ''}"><small>Lança no financeiro como reserva</small></label>
+        <label class="field"><span>Sinal pago (R$)</span><input name="sinal" inputmode="decimal" value="${pre.sinal ? esc(String(pre.sinal).replace('.', ',')) : ''}"><small>${S.cfg.sinalRetido !== false ? 'Entra no caixa e fica com você se ela cancelar' : 'Lança no financeiro como reserva'}</small></label>
       </div>
       <div class="total-box"><span id="agResumo" class="muted"></span><b id="agTotal">R$ 0,00</b></div>
       <label class="field"><span>Observações</span><textarea name="observacoes" rows="2" placeholder="Ex.: noiva, levar kit de cílios, chegar 30 min antes…">${esc(pre.observacoes || '')}</textarea></label>
@@ -1137,7 +1166,7 @@ async function detalheAgendamento(id, depois) {
     try {
       await call('agenda.status', { id: a.id, status: stt, financeiro });
       m.close();
-      toast(stt === 'cancelado' && financeiro === 'remover' && a.financeiro && a.financeiro.pago ? 'Horário cancelado e valor retirado do caixa' : a.status === 'concluido' && stt === 'confirmado' ? 'Finalização desfeita' : 'Status: ' + STATUS[stt]);
+      toast(stt === 'cancelado' ? avisoFinanceiro(a, financeiro, 'Horário cancelado') : a.status === 'concluido' && stt === 'confirmado' ? 'Finalização desfeita' : 'Status: ' + STATUS[stt]);
       atualizar();
     } catch (e) { erroToast(e); }
   })));
@@ -1153,7 +1182,7 @@ async function detalheAgendamento(id, depois) {
     try {
       await call('agenda.excluir', { id: a.id, financeiro });
       m.close();
-      toast(financeiro === 'remover' && a.financeiro && a.financeiro.pago ? 'Agendamento excluído e valor retirado do caixa' : 'Agendamento excluído');
+      toast(avisoFinanceiro(a, financeiro, 'Agendamento excluído'));
       atualizar();
     } catch (e) { erroToast(e); }
   });
@@ -1841,6 +1870,7 @@ PAGES.config = async el => {
         <label class="field"><span>Fecha às</span><input type="time" name="horaFechamento" value="${esc(c.horaFechamento)}"></label>
         <label class="field"><span>Intervalo da agenda (min)</span><select name="intervaloAgenda">${opts([{ v: 5, l: '5 min' }, { v: 10, l: '10 min' }, { v: 15, l: '15 min' }, { v: 30, l: '30 min' }], c.intervaloAgenda)}</select></label>
         <label class="field"><span>Cliente “sumida” após (dias)</span><input type="number" name="diasInativa" min="15" value="${esc(c.diasInativa)}"></label></div>
+        <label class="switch"><input type="checkbox" name="sinalRetido" ${c.sinalRetido !== false ? 'checked' : ''}><span>O <b>sinal não é devolvido</b>: se a cliente cancelar ou faltar, ele fica no caixa</span></label>
         <button type="button" class="btn primary" data-salvar="fHor">Salvar</button></form></div></div>
 
       <div class="card span-6"><div class="card-head"><div><h3>Listas</h3><div class="sub">Uma opção por linha</div></div></div><div class="card-body"><form id="fListas">
