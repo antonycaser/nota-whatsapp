@@ -1,7 +1,7 @@
 // Adaptador Postgres (mesma interface do adaptador Supabase) + login simulado — usado nos testes.
 import pg from 'pg';
 import { readFileSync } from 'node:fs';
-import { doBanco, paraBanco, snake, type Db, type AuthAdmin, type Filtro, type Linha } from '../supabase/functions/api/logica.ts';
+import { doBanco, paraBanco, snake, type Db, type AuthAdmin, type Filtro, type Linha } from '../supabase/functions/_shared/logica.ts';
 
 export async function criarBanco() {
   pg.types.setTypeParser(1082, (v: string) => v);      // date → 'YYYY-MM-DD'

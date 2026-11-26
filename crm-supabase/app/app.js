@@ -1898,8 +1898,7 @@ PAGES.config = async el => {
         <label class="field"><span>Chave Pix</span><input name="pix" value="${esc(c.pix)}"></label></div>
         <button type="button" class="btn primary" data-salvar="fStudio">Salvar</button></form></div></div>
 
-      <div class="card span-6"><div class="card-head"><div><h3>Google Agenda</h3><div class="sub">Tudo que você marca no CRM vai para a agenda</div></div></div><div class="card-body">
-        <div class="alert info">${ico('calendar')}<div>A ligação com o Google Agenda chega na <b>fase 3</b> da versão nova. Até lá, a agenda funciona normalmente aqui dentro do CRM.</div></div></div></div>
+      <div class="card span-6"><div class="card-head"><div><h3>Google Agenda</h3><div class="sub">O que você marca no CRM vai para a agenda — e o que muda lá volta para cá</div></div></div><div class="card-body" id="gBox"><div class="muted tiny">Carregando…</div></div></div>
 
       <div class="card span-6"><div class="card-head"><h3>Agenda e funcionamento</h3></div><div class="card-body"><form id="fHor">
         <div class="grid-2"><label class="field"><span>Abre às</span><input type="time" name="horaAbertura" value="${esc(c.horaAbertura)}"></label>
@@ -1943,6 +1942,7 @@ PAGES.config = async el => {
       else toast('Configurações salvas ✨');
     } catch (err) { erroToast(err); }
   })));
+  montarGoogle();
   $('#bMinhaSenha').addEventListener('click', e => busy(e.currentTarget, async () => {
     const d = formData($('#fMinhaSenha'));
     try { await alterarSenha(d.atual, d.nova, d.nova); $('#fMinhaSenha').reset(); toast('Senha alterada 🔐'); } catch (err) { erroToast(err); }
@@ -2105,6 +2105,80 @@ async function importarGoogle() {
 }
 
 /* ------------------------- Início ------------------------- */
+/* ---------- Google Agenda (conecta pela conta Google, sem digitar e-mail) ---------- */
+const VOLTA_GOOGLE = (() => {
+  const q = new URLSearchParams(location.search), g = q.get('google');
+  if (!g) return null;
+  history.replaceState(null, '', location.pathname + location.hash);
+  S.page = 'config';
+  return { ok: g === 'ok', msg: q.get('msg') || '' };
+})();
+async function atualizarCfgGoogle() {
+  try { await recarregarCadastros(); montarShell(); } catch (e) { /* ignora */ }
+}
+async function montarGoogle() {
+  const box = $('#gBox');
+  if (!box) return;
+  if (VOLTA_GOOGLE && !VOLTA_GOOGLE.visto) {
+    VOLTA_GOOGLE.visto = true;
+    if (VOLTA_GOOGLE.ok) { toast('Google Agenda conectado! ✅'); atualizarCfgGoogle(); }
+    else toast(VOLTA_GOOGLE.msg || 'Não foi possível conectar o Google Agenda.', 'err');
+  }
+  let st;
+  try { st = await call('google.status'); } catch (e) { box.innerHTML = `<div class="alert warn">${ico('alert')}<div>${esc(e.message)}</div></div>`; return; }
+  if (!st.configurado) {
+    box.innerHTML = `<div class="alert warn">${ico('alert')}<div>Falta um passo no Supabase: em <b>Edge Functions → Secrets</b>, cadastre <b>GOOGLE_CLIENT_ID</b> e <b>GOOGLE_CLIENT_SECRET</b> (do Google Cloud). Depois volte aqui.</div></div>`;
+    return;
+  }
+  if (!st.conectado) {
+    box.innerHTML = `${st.erro ? `<div class="alert warn">${ico('alert')}<div>${esc(st.erro)}</div></div>` : ''}
+      <p class="muted" style="margin:0 0 12px">Toque no botão, entre com a <b>conta Google da agenda do studio</b> e clique em <b>Permitir</b>. Não precisa digitar e-mail aqui.</p>
+      <button type="button" class="btn primary" id="bGConectar">${ico('calendar')}Conectar Google Agenda</button>
+      <p class="muted tiny" style="margin:10px 0 0">Se aparecer “O Google não verificou este app”, toque em <b>Avançado</b> → <b>Acessar</b> (o app é seu).</p>`;
+    $('#bGConectar').addEventListener('click', e => busy(e.currentTarget, async () => {
+      try { const r = await call('google.iniciar', { volta: location.origin + location.pathname }); location.href = r.url; } catch (err) { erroToast(err); }
+    }));
+    return;
+  }
+  box.innerHTML = `<div class="alert info">${ico('check')}<div>Conectado a <b>${esc(st.email || 'Google')}</b>${st.ultimaSync ? ` · última leitura do Google ${esc(fDataHora(st.ultimaSync))}` : ''}</div></div>
+    <form id="fGoogle">
+      <label class="switch"><input type="checkbox" name="ativo" ${st.ativo ? 'checked' : ''}><span>Sincronizar com o Google Agenda</span></label>
+      <label class="field"><span>Agenda</span><select name="calendarId" id="gCalSel"><option value="${esc(st.calendarId)}">${esc(st.calendarNome || 'Carregando agendas…')}</option></select><small>Dica: crie no Google uma agenda só do studio e escolha aqui.</small></label>
+      <label class="switch"><input type="checkbox" name="mostrarEventosGoogle" ${st.mostrarEventosGoogle ? 'checked' : ''}><span>Mostrar meus outros compromissos na agenda do CRM</span></label>
+      <label class="field"><span>Alerta no celular (minutos antes)</span><input name="lembreteAgendaMin" type="number" min="0" value="${esc(st.lembreteAgendaMin)}"></label>
+      <div class="actions-row"><button type="button" class="btn primary" id="bGSalvar">Salvar</button><button type="button" class="btn" id="bGSync">${ico('refresh')}Buscar mudanças agora</button></div>
+      <div class="actions-row" style="margin-top:10px"><button type="button" class="btn" id="bImportar">${ico('download')}Importar eventos do Google</button><button type="button" class="btn" id="bResync">${ico('repeat')}Reenviar horários futuros</button></div>
+      <div class="actions-row" style="margin-top:10px"><button type="button" class="btn sm ghost danger" id="bGDesc">${ico('x')}Desconectar</button></div>
+    </form>
+    <p class="muted tiny" style="margin:10px 0 0">Mudanças feitas direto no Google (remarcar ou apagar) chegam ao CRM sozinhas em até 5 minutos.</p>`;
+  const sel = $('#gCalSel');
+  call('google.calendarios').then(r => { sel.innerHTML = opts(r.lista.map(x => ({ v: x.id, l: x.nome })), st.calendarId); }).catch(erroToast);
+  $('#bGSalvar').addEventListener('click', e => busy(e.currentTarget, async () => {
+    const d = formData($('#fGoogle'));
+    try {
+      const r = await call('google.salvar', { ativo: !!d.ativo, mostrarEventosGoogle: !!d.mostrarEventosGoogle, lembreteAgendaMin: d.lembreteAgendaMin, calendarId: d.calendarId });
+      await atualizarCfgGoogle();
+      toast(r.trocouAgenda ? 'Agenda trocada ✅ Toque em “Reenviar horários futuros” para levar os horários para ela.' : 'Google Agenda salvo ✨');
+      montarGoogle();
+    } catch (err) { erroToast(err); }
+  }));
+  $('#bGSync').addEventListener('click', e => busy(e.currentTarget, async () => {
+    try {
+      const r = await call('google.sincronizar');
+      toast(r.remarcados || r.cancelados ? `${r.remarcados} remarcado(s) e ${r.cancelados} cancelado(s) pelo Google` : 'Tudo em dia com o Google Agenda ✅');
+      montarGoogle();
+    } catch (err) { erroToast(err); }
+  }));
+  $('#bImportar').addEventListener('click', () => importarGoogle());
+  $('#bResync').addEventListener('click', e => busy(e.currentTarget, async () => {
+    try { const r = await call('agenda.ressincronizar'); toast(`${r.sincronizados} horário(s) enviados ao Google Agenda${r.erros ? ' · ' + r.erros + ' erro(s)' : ''}`); } catch (err) { erroToast(err); }
+  }));
+  $('#bGDesc').addEventListener('click', async () => {
+    if (!confirm('Desconectar o Google Agenda? Os eventos que já estão lá continuam, mas o CRM para de atualizar.')) return;
+    try { await call('google.desconectar'); await atualizarCfgGoogle(); toast('Google Agenda desconectado'); montarGoogle(); } catch (err) { erroToast(err); }
+  });
+}
+
 window.addEventListener('DOMContentLoaded', iniciar);
 if (document.readyState !== 'loading') iniciar();
 })();

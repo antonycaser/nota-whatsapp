@@ -9,7 +9,8 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
-import { executar } from '../supabase/functions/api/logica.ts';
+import { executar, googleCallback, hoje } from '../supabase/functions/_shared/logica.ts';
+import { google, G, gCriar } from './google-falso.ts';
 import { criarBanco } from './pg-adaptador.ts';
 
 const require = createRequire(import.meta.url);
@@ -64,7 +65,7 @@ async function rotear(page: any) {
       if (!auth0.startsWith('Bearer ')) return json(401, { msg: 'Missing authorization header' });
       const { action, payload } = JSON.parse(req.postData() || '{}');
       const sess = { id: adminId, nome: 'Lara Altoé', perfil: 'admin', email: 'lara@exemplo.com', trocarSenha: false };
-      return json(200, await executar(action, payload, { db, auth, sess, memo: {} }));
+      return json(200, await executar(action, payload, { db, auth, sess, memo: {}, google: G }));
     }
     return json(404, { msg: 'rota não simulada: ' + u });
   });
@@ -144,7 +145,7 @@ await cenario('Celular (iPhone)', { ...devices['iPhone 13'] }, async (p) => {
     await p.click('[data-action=mais]'); await p.waitForTimeout(300); await p.click(`[data-ir=${pg}]`); await p.waitForTimeout(1800);
     passo(`${pg} abre sem erro`, !(await p.$('#page .empty .big:text("😕")')));
   }
-  passo('configurações avisam que o Google Agenda é a fase 3', /fase 3/.test(await p.textContent('#page')));
+  passo('configurações mostram o botão "Conectar Google Agenda"', await p.isVisible('#bGConectar'));
   passo('usuários listados pelo e-mail', /lara@exemplo\.com/.test(await p.textContent('#page')));
   await shot(p, 'sb-config');
 
@@ -169,6 +170,34 @@ await cenario('Computador', { viewport: { width: 1440, height: 900 } }, async (p
   await p.click('[data-nav=relatorios]'); await p.waitForTimeout(2000);
   passo('relatórios com gráfico', (await p.$$('canvas')).length >= 2);
   await shot(p, 'sb-desk-relatorios');
+});
+
+await cenario('Google Agenda conectado', { viewport: { width: 1440, height: 900 } }, async (p) => {
+  // conecta como se a Lara tivesse autorizado no Google
+  const sess = { id: adminId, nome: 'Lara Altoé', perfil: 'admin', email: 'lara@exemplo.com', trocarSenha: false };
+  const ctx = { db, auth, sess, memo: {}, google: G };
+  const ini = await executar('google.iniciar', { volta: 'https://crm.exemplo/' }, ctx);
+  const volta = await googleCallback({ code: 'c1', state: new URL(ini.data.url).searchParams.get('state') }, { ...ctx, memo: {} });
+  passo('autorização do Google volta para o app com ?google=ok', volta === 'https://crm.exemplo/?google=ok');
+  gCriar({ summary: 'Dentista', start: { dateTime: hoje() + 'T13:00:00-03:00' }, end: { dateTime: hoje() + 'T13:30:00-03:00' } });
+
+  await p.waitForSelector('#loginForm', { state: 'visible' });
+  await p.fill('[name=email]', 'lara@exemplo.com'); await p.fill('[name=senha]', SENHA); await p.click('#loginBtn');
+  await p.waitForSelector('#shell:not(.hidden)', { timeout: 10000 }); await p.waitForTimeout(1200);
+  await p.goto('file://' + APP + '?google=ok'); await p.waitForTimeout(3000);
+  passo('ao voltar do Google, abre Configurações e avisa que conectou', /conectado/i.test(await p.textContent('body')) && !!(await p.$('#gBox')));
+  passo('cartão mostra a conta conectada', /Conectado a lara\.agenda@gmail\.com/.test(await p.textContent('#gBox')));
+  passo('lista as agendas da conta', (await p.$$('#gCalSel option')).length === 2);
+  await shot(p, 'sb-google-config');
+  await p.click('#bResync'); await p.waitForTimeout(1500);
+  const evs = [...google.eventos.values()];
+  passo('"Reenviar horários futuros" leva o atendimento para o Google', evs.some((e) => /Fernanda Gomes/.test(e.summary)));
+  await p.click('[data-nav=agenda]'); await p.waitForTimeout(2500);
+  passo('agenda mostra o compromisso pessoal do Google', /🔒 Dentista/.test(await p.textContent('#page')));
+  passo('agenda indica que está sincronizada', /Sincronizada com Google Agenda/.test(await p.textContent('#page')));
+  await shot(p, 'sb-google-agenda');
+  await p.click('#bImportarAg'); await p.waitForTimeout(400);
+  passo('botão "Importar do Google" abre a importação', await p.isVisible('#impIni'));
 });
 
 await browser.close();

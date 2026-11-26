@@ -4,8 +4,9 @@
 //  (usa pg_virtualenv: cria um Postgres descartável e apaga no fim)
 // =====================================================================
 import assert from 'node:assert/strict';
-import { executar, hoje, addMin, type Linha } from '../supabase/functions/api/logica.ts';
+import { executar, hoje, addMin, googleCallback, gPull, type Linha } from '../supabase/functions/_shared/logica.ts';
 import { criarBanco } from './pg-adaptador.ts';
+import { google, G, gCriar, gMexer, gEv } from './google-falso.ts';
 
 const { db, auth, sql, cli, bloqueados } = await criarBanco();
 
@@ -14,7 +15,7 @@ const adminId = await auth.criar('lara@exemplo.com', 'x');
 await sql(`insert into public.perfis (id, nome, perfil) values ($1, 'Lara Altoé', 'admin')`, [adminId]);
 const sessAdmin = { id: adminId, nome: 'Lara Altoé', perfil: 'admin', email: 'lara@exemplo.com', trocarSenha: false };
 const API = async (action: string, payload: Linha = {}, sess: any = sessAdmin) => {
-  const r = await executar(action, payload, { db, auth, sess, memo: {} });
+  const r = await executar(action, payload, { db, auth, sess, memo: {}, google: G });
   if (!r.ok) { const e: any = new Error(r.error); e.r = r; throw e; }
   return r.data;
 };
@@ -196,12 +197,188 @@ await t('bloquear, trocar e-mail e excluir usuário', async () => {
   await API('usuarios.excluir', { id: equipeSess.id });
   assert.equal(await db.um('perfis', equipeSess.id), null, 'perfil some junto com o login');
 });
-await t('recursos das próximas fases avisam com clareza', async () => {
-  await falha('agenda.importarPrevia', {}, /fase 3/);
+await t('WhatsApp automático (próxima fase) avisa com clareza', async () => {
   await falha('wa.config', {}, /fase 4/);
 });
 await t('erro inesperado vira mensagem, sem derrubar o servidor', async () => {
   await falha('agenda.obter', { id: 'nao-e-uuid' }, /Erro no servidor/);
+});
+
+// =====================================================================
+//  Google Agenda (fase 3) — com um Google de mentira, igual ao de verdade
+//  no que o CRM usa (OAuth, eventos, syncToken).
+// =====================================================================
+console.log('\nGoogle Agenda');
+await t('sem conectar, o Google fica desligado e avisa com clareza', async () => {
+  const st = await API('google.status');
+  assert.equal(st.conectado, false); assert.equal(st.configurado, true);
+  await falha('agenda.importarPrevia', {}, /Conecte o Google Agenda/);
+  await falha('agenda.ressincronizar', {}, /Conecte o Google Agenda/);
+  const semChaves = await executar('google.iniciar', { volta: 'https://app.exemplo' }, { db, auth, sess: sessAdmin, memo: {} });
+  assert.match(semChaves.error, /GOOGLE_CLIENT_ID/);
+});
+const VOLTA = 'https://crm-lara.netlify.app/';
+await t('conectar: link do Google, retorno com state certo grava a conexão', async () => {
+  const { url } = await API('google.iniciar', { volta: VOLTA });
+  const u = new URL(url);
+  assert.equal(u.origin + u.pathname, 'https://accounts.google.com/o/oauth2/v2/auth');
+  assert.equal(u.searchParams.get('access_type'), 'offline');
+  assert.match(u.searchParams.get('scope')!, /auth\/calendar/);
+  assert.equal(u.searchParams.get('redirect_uri'), G.redirectUri);
+  const ctxG = { db, auth, sess: sessAdmin, memo: {}, google: G };
+  assert.match(await googleCallback({ code: 'c1', state: 'errado' }, ctxG), /google=erro/);
+  // state errado não serve, e o certo só vale uma vez → pede de novo
+  const { url: url2 } = await API('google.iniciar', { volta: VOLTA });
+  const st = new URL(url2).searchParams.get('state')!;
+  assert.equal(await googleCallback({ code: 'c1', state: st }, ctxG), VOLTA + '?google=ok');
+  assert.match(await googleCallback({ code: 'c1', state: st }, ctxG), /google=erro/, 'state é de uso único');
+  const s = await API('google.status');
+  assert.equal(s.conectado, true); assert.equal(s.email, 'lara.agenda@gmail.com');
+  assert.equal((await API('boot')).cfg.calendarAtivo, true);
+  assert.equal((await API('boot')).cfg.recursos.importar, true);
+});
+let agG: Linha;
+await t('agendar no CRM cria o evento no Google (com cliente, serviços e valor)', async () => {
+  agG = await API('agenda.salvar', { clienteId: ana.id, servicoIds: [S('Maquiagem social'), S('Penteado social')], data: dia(10), hora: '09:00', sinal: 50 });
+  assert.equal(agG.syncStatus, 'ok'); assert.equal(agG.aviso, '');
+  const ev = gEv(agG.eventId);
+  assert.match(ev.summary, /Ana Souza — Maquiagem social \+ Penteado social/);
+  assert.match(ev.description, /R\$ 340,00 \(sinal pago: R\$ 50,00\)/);
+  assert.equal(ev.start.dateTime.slice(0, 16), dia(10) + 'T09:00');
+  assert.equal(ev.end.dateTime.slice(0, 16), dia(10) + 'T11:00');
+  assert.equal(ev.start.timeZone, 'America/Sao_Paulo');
+});
+await t('mudar horário/status no CRM atualiza o mesmo evento', async () => {
+  agG = await API('agenda.salvar', { id: agG.id, clienteId: ana.id, servicoIds: [S('Maquiagem social'), S('Penteado social')], data: dia(10), hora: '14:00', sinal: 50 });
+  assert.equal(gEv(agG.eventId).start.dateTime.slice(11, 16), '14:00');
+  await API('agenda.status', { id: agG.id, status: 'confirmado' });
+  assert.match(gEv(agG.eventId).summary, /^✅/);
+  assert.equal(google.eventos.size, 1, 'não duplica evento');
+});
+await t('compromissos pessoais do Google aparecem na agenda do CRM (e os do CRM não se repetem)', async () => {
+  gCriar({ summary: 'Dentista', start: { dateTime: dia(10) + 'T08:00:00-03:00' }, end: { dateTime: dia(10) + 'T08:30:00-03:00' } });
+  gCriar({ summary: 'Viagem', start: { date: dia(10) }, end: { date: dia(11) } });
+  const r = await API('agenda.listar', { inicio: dia(10), fim: dia(10), externos: true });
+  assert.deepEqual(r.externos.map((x: Linha) => x.titulo).sort(), ['Dentista', 'Viagem']);
+  assert.equal(r.externos.find((x: Linha) => x.titulo === 'Dentista').inicio.slice(0, 16), dia(10) + 'T08:00');
+  assert.equal(r.agendamentos.length, 1);
+  assert.equal((await API('agenda.listar', { inicio: dia(10), fim: dia(10) })).externos.length, 0, 'só busca quando pedido');
+});
+await t('Google → CRM: remarcar direto no Google muda o horário no CRM', async () => {
+  await API('google.sincronizar'); // pega o ponto de partida
+  gMexer(agG.eventId, { start: { dateTime: dia(11) + 'T10:00:00-03:00', timeZone: 'America/Sao_Paulo' }, end: { dateTime: dia(11) + 'T12:00:00-03:00', timeZone: 'America/Sao_Paulo' } });
+  const r = await API('google.sincronizar');
+  assert.equal(r.remarcados, 1);
+  const a = await db.um('agendamentos', agG.id);
+  assert.equal(a.inicio.slice(0, 16), dia(11) + 'T10:00'); assert.equal(a.fim.slice(0, 16), dia(11) + 'T12:00');
+  assert.equal((await API('google.sincronizar')).remarcados, 0, 'não repete');
+});
+await t('Google → CRM: apagar no Google cancela no CRM e o sinal fica no caixa', async () => {
+  gMexer(agG.eventId, { status: 'cancelled' });
+  const r = await API('google.sincronizar');
+  assert.equal(r.cancelados, 1);
+  const a = await db.um('agendamentos', agG.id);
+  assert.equal(a.status, 'cancelado'); assert.match(a.syncStatus, /apagado no Google/);
+  assert.equal(await somaFin(agG.id), 50);
+});
+await t('cancelar e excluir no CRM tira o evento do Google', async () => {
+  const a = await API('agenda.salvar', { clienteId: bia.id, servicoIds: [S('Design de sobrancelha')], data: dia(12), hora: '10:00' });
+  assert.ok(gEv(a.eventId));
+  await API('agenda.status', { id: a.id, status: 'cancelado' });
+  assert.equal(gEv(a.eventId).status, 'cancelled');
+  const b = await API('agenda.salvar', { clienteId: bia.id, servicoIds: [S('Design de sobrancelha')], data: dia(12), hora: '11:00' });
+  await API('agenda.excluir', { id: b.id });
+  assert.equal(gEv(b.eventId).status, 'cancelled');
+  const r = await API('google.sincronizar');
+  assert.equal(r.cancelados, 0, 'o que o próprio CRM apagou não volta como mudança');
+});
+await t('Google fora do ar: salva no CRM e avisa (não perde o agendamento)', async () => {
+  google.fora = true;
+  const a = await API('agenda.salvar', { clienteId: bia.id, servicoIds: [S('Design de sobrancelha')], data: dia(13), hora: '10:00' });
+  google.fora = false;
+  assert.ok(await db.um('agendamentos', a.id));
+  assert.match(a.aviso, /não foi para o Google/);
+  const r = await API('agenda.ressincronizar');
+  assert.ok(r.sincronizados >= 1); assert.equal(r.erros, 0);
+  assert.equal((await db.um('agendamentos', a.id)).syncStatus, 'ok');
+});
+let impA: Linha;
+await t('importar: prévia reconhece cliente, serviços e valor; ignora o que já é do CRM', async () => {
+  await db.upd('servicos', S('Maquiagem social'), { ativo: 'sim' }); // foi desativado num teste acima
+  gCriar({ summary: 'Make Ana Souza R$ 200', start: { dateTime: dia(15) + 'T09:00:00-03:00' }, end: { dateTime: dia(15) + 'T10:00:00-03:00' }, colorId: '5' });
+  gCriar({ summary: 'Sobrancelha + henna Paula Dias 11 91234-5678', start: { dateTime: dia(-3) + 'T15:00:00-03:00' }, end: { dateTime: dia(-3) + 'T15:45:00-03:00' } });
+  gCriar({ summary: 'Pilates', start: { dateTime: dia(15) + 'T07:00:00-03:00' }, end: { dateTime: dia(15) + 'T08:00:00-03:00' }, recurringEventId: 'rec1' });
+  const p = await API('agenda.importarPrevia', { inicio: dia(-10), fim: dia(20) });
+  const make = p.eventos.find((e: Linha) => /Make Ana/.test(e.titulo));
+  assert.equal(make.clienteId, ana.id); assert.equal(make.valor, 200); assert.deepEqual(make.servicoIds.map((id: string) => servicos.find((s) => s.id === id).nome), ['Maquiagem social']); assert.ok(make.provavel);
+  const carla = p.eventos.find((e: Linha) => /Paula/.test(e.titulo));
+  assert.equal(carla.clienteId, ''); assert.equal(carla.nomeNovo, 'Paula Dias'); assert.equal(carla.telefone, '5511912345678');
+  assert.deepEqual(carla.servicoIds, [S('Design com henna')]);
+  assert.ok(p.eventos.find((e: Linha) => e.titulo === 'Pilates').recorrente);
+  assert.ok(!p.eventos.some((e: Linha) => /Ana Souza —/.test(e.titulo)), 'eventos criados pelo CRM não aparecem');
+  const r = await API('agenda.importar', { renomear: true, lancarPassados: true, itens: [
+    { eventId: make.eventId, clienteId: make.clienteId, servicoIds: make.servicoIds, valor: make.valor },
+    { eventId: carla.eventId, clienteId: '', novaCliente: { nome: carla.nomeNovo, telefone: carla.telefone }, servicoIds: carla.servicoIds, valor: 70 }
+  ] });
+  assert.equal(r.importados, 2); assert.equal(r.clientesNovas, 1); assert.equal(r.lancados, 1); assert.deepEqual(r.erros, []);
+  impA = (await db.sel('agendamentos', { eq: { eventId: make.eventId } }))[0];
+  assert.equal(impA.status, 'agendado'); assert.equal(impA.valor, 200);
+  assert.match(gEv(make.eventId).summary, /Ana Souza — Maquiagem social/, 'futuro é padronizado no Google');
+  const passado = (await db.sel('agendamentos', { eq: { eventId: carla.eventId } }))[0];
+  assert.equal(passado.status, 'concluido'); assert.equal(await somaFin(passado.id), 70);
+  assert.equal(gEv(carla.eventId).summary, 'Sobrancelha + henna Paula Dias 11 91234-5678', 'passado fica como estava');
+  assert.equal((await API('agenda.importar', { itens: [{ eventId: make.eventId, clienteId: ana.id, servicoIds: make.servicoIds }] })).importados, 0, 'não importa duas vezes');
+});
+await t('desfazer importação devolve o evento como era e apaga do CRM', async () => {
+  await API('agenda.desfazerImportacao', { id: impA.id });
+  const ev = gEv(impA.eventId);
+  assert.equal(ev.summary, 'Make Ana Souza R$ 200'); assert.equal(ev.colorId, '5');
+  assert.equal(await db.um('agendamentos', impA.id), null);
+});
+await t('escolher outra agenda da conta', async () => {
+  const cals = await API('google.calendarios');
+  assert.deepEqual(cals.lista.map((c: Linha) => c.id), ['primary', 'studio@group.calendar.google.com']);
+  const s = await API('google.salvar', { calendarId: 'studio@group.calendar.google.com', mostrarEventosGoogle: false, lembreteAgendaMin: 30 });
+  assert.equal(s.calendarId, 'studio@group.calendar.google.com'); assert.equal(s.trocouAgenda, true);
+  assert.equal(s.mostrarEventosGoogle, false); assert.equal(s.lembreteAgendaMin, 30);
+  const a = await API('agenda.salvar', { clienteId: ana.id, servicoIds: [S('Maquiagem social')], data: dia(16), hora: '09:00' });
+  assert.equal(google.eventos.get(a.eventId).cal, 'studio@group.calendar.google.com');
+  assert.equal((await API('agenda.listar', { inicio: dia(10), fim: dia(10), externos: true })).externos.length, 0, 'pessoais escondidos');
+  await falha('google.salvar', { calendarId: 'de-outra-pessoa@gmail.com' }, /não aparece/);
+});
+await t('pausar a sincronização e voltar', async () => {
+  await API('google.salvar', { ativo: false });
+  assert.equal((await API('boot')).cfg.calendarAtivo, false);
+  const n = google.eventos.size;
+  await API('agenda.salvar', { clienteId: ana.id, servicoIds: [S('Maquiagem social')], data: dia(17), hora: '09:00' });
+  assert.equal(google.eventos.size, n, 'pausado não envia');
+  await API('google.salvar', { ativo: true });
+  assert.equal((await API('boot')).cfg.calendarAtivo, true);
+});
+await t('a função "google" do agendador recusa chamada sem o segredo', async () => {
+  // a regra fica no index.ts da função; aqui confere a peça que ela usa
+  const r = await gPull({ db, auth, sess: sessAdmin, memo: {}, google: G });
+  assert.equal(typeof r.remarcados, 'number');
+});
+await t('se a dona tirar o acesso no Google, o CRM avisa para conectar de novo', async () => {
+  google.revogado = true;
+  await db.upsert('config', { chave: 'google', valor: Object.assign({}, (await db.sel('config', { eq: { chave: 'google' } }))[0].valor, { expira: 0 }) }, 'chave');
+  const a = await API('agenda.salvar', { clienteId: ana.id, servicoIds: [S('Maquiagem social')], data: dia(18), hora: '09:00' });
+  assert.ok(await db.um('agendamentos', a.id), 'agendamento salvo mesmo assim');
+  const s = await API('google.status');
+  assert.equal(s.conectado, false); assert.match(s.erro, /Conecte de novo/);
+  assert.equal((await API('boot')).cfg.calendarAtivo, false);
+  google.revogado = false;
+});
+await t('desconectar', async () => {
+  const ctxG = { db, auth, sess: sessAdmin, memo: {}, google: G };
+  const { url } = await API('google.iniciar', { volta: VOLTA });
+  await googleCallback({ code: 'c2', state: new URL(url).searchParams.get('state') }, ctxG);
+  assert.equal((await API('google.status')).conectado, true);
+  await API('google.desconectar');
+  const s = await API('google.status');
+  assert.equal(s.conectado, false); assert.equal(google.revogados, 1);
+  assert.equal(s.calendarId, 'studio@group.calendar.google.com', 'lembra a agenda escolhida');
 });
 
 await cli.end();

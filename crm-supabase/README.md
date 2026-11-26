@@ -6,7 +6,7 @@ Nova versão do CRM, rodando no **Supabase** (banco de dados e servidor) e no **
 |---|---|---|
 | 1 | Conta no Supabase + estrutura do banco | ✅ arquivos prontos |
 | 2 | Aplicativo no Supabase: login, painel, agenda, clientes, financeiro, relatórios | ✅ pronto para instalar |
-| 3 | Google Agenda (nos dois sentidos) | depois da fase 2 |
+| 3 | Google Agenda (nos dois sentidos) | ✅ pronto para instalar |
 | 4 | WhatsApp, cópia dos dados atuais e backup automático | depois da fase 3 |
 
 ---
@@ -77,6 +77,56 @@ Abra o endereço do Netlify e entre com o **e-mail e a senha** que você criou e
 
 ---
 
+## Fase 3: Google Agenda (± 20 minutos)
+
+Depois de conectar:
+- **CRM → Google, na hora:** agendar, remarcar, confirmar, finalizar, cancelar ou excluir no CRM cria, atualiza ou apaga o evento.
+- **Google → CRM, sozinho a cada 5 minutos:** se a Lara remarcar ou apagar o evento direto no Google Agenda, o CRM acompanha. Se ela apagar, vale a regra do sinal (o sinal fica no caixa).
+- **Compromissos pessoais** do Google aparecem hachurados na agenda do CRM (dá para esconder).
+- **Importar** eventos antigos/futuros do Google, com cliente, serviços e valor sugeridos (e dá para desfazer).
+- **Não precisa digitar e-mail em lugar nenhum:** a Lara toca em "Conectar Google Agenda" e entra com a conta Google dela.
+
+### 1. Google Cloud (uma vez só)
+Em **console.cloud.google.com**:
+1. Crie um projeto (ex.: `crm-lara`) e ative a **Google Calendar API** (APIs e serviços → Biblioteca).
+2. **Tela de consentimento OAuth / Google Auth Platform**:
+   - Tipo **Externo**. Nome do app: `CRM Lara Altoé`.
+   - **E-mail de suporte do usuário** e **dados de contato do desenvolvedor**: o **seu próprio Gmail** (o que está logado no Google Cloud). Não precisa ser o da Lara.
+   - **Público-alvo**: clique em **Publicar app** (fica "Em produção"). Assim a conexão não cai depois de 7 dias.
+     Se preferir deixar em teste, adicione o Gmail da Lara em **Usuários de teste** (mas aí a conexão expira a cada 7 dias).
+3. **Clientes → Criar cliente**: tipo **Aplicativo da Web**. Em **URIs de redirecionamento autorizados**, adicione exatamente:
+   `https://cagvmdztxchypulfshla.supabase.co/functions/v1/google`
+4. Copie o **ID do cliente** e a **Chave secreta do cliente**. ⚠️ Não mande a chave secreta para ninguém, nem para mim.
+
+### 2. Chaves no Supabase
+**Edge Functions → Secrets → Add new secret**, e crie duas:
+- `GOOGLE_CLIENT_ID` = o ID do cliente
+- `GOOGLE_CLIENT_SECRET` = a chave secreta do cliente
+
+### 3. Atualizar a função `api`
+**Edge Functions → api → Code**: apague tudo, cole **todo** o novo [`deploy/funcao-api.ts`](deploy/funcao-api.ts) e clique em **Deploy**.
+
+### 4. Criar a função `google`
+1. **Edge Functions → Deploy a new function → Via Editor**.
+2. Cole **todo** o [`deploy/funcao-google.ts`](deploy/funcao-google.ts). Nome: exatamente **`google`**. **Deploy function**.
+3. Abra a função `google` → **Details** (ou Settings) → **desligue "Verify JWT" / "Enforce JWT verification"** e salve.
+   (O Google não manda o login do CRM quando volta da autorização. A segurança fica por conta de um código de uso único e de um segredo guardado só no banco.)
+
+### 5. Sincronização automática
+Em **SQL Editor → New query**, cole [`supabase/05_google.sql`](supabase/05_google.sql) e clique em **Run**. Deve aparecer **"Sincronização automática ligada"**.
+
+### 6. Atualizar o aplicativo no Netlify
+No site do CRM novo no Netlify → **Deploys** → arraste a pasta **`app`** nova para a área "Drag and drop" (mesmo site, mesmo endereço).
+
+### 7. Conectar
+No CRM novo: **Mais → Configurações → Google Agenda → Conectar Google Agenda**. Entre com a conta Google **da agenda do studio** e toque em **Permitir**.
+Se aparecer *"O Google não verificou este app"*, toque em **Avançado → Acessar CRM Lara Altoé (não seguro)**. O app é seu, então pode continuar.
+Depois, escolha a agenda, toque em **Salvar** e (se quiser) em **Reenviar horários futuros** e **Importar eventos do Google**.
+
+> Eventos que o CRM antigo (Google Apps Script) criou não aparecem na importação: eles vêm junto com a cópia dos dados na fase 4.
+
+---
+
 ## Arquivos
 
 ```
@@ -86,15 +136,20 @@ crm-supabase/
 │   ├── 02_primeira_admin.sql   transforma o primeiro login em administradora
 │   ├── 03_fase2.sql            senha provisória + resumo de clientes (view)
 │   ├── 04_permissoes.sql       permissão do servidor nas tabelas (projetos novos)
-│   └── functions/api/
-│       ├── logica.ts           regras do CRM (agenda, financeiro, relatórios…)
-│       └── index.ts            porta de entrada: confere login e perfil
-├── deploy/funcao-api.ts        logica.ts + index.ts num arquivo só (para colar no painel)
+│   ├── 05_google.sql           sincronização automática Google → CRM (a cada 5 min)
+│   └── functions/
+│       ├── _shared/logica.ts   regras do CRM (agenda, financeiro, relatórios, Google Agenda…)
+│       ├── _shared/adaptador.ts  ligação com o banco, os logins e o Google
+│       ├── api/index.ts        porta de entrada do app: confere login e perfil
+│       └── google/index.ts     volta da autorização do Google + sincronização automática
+├── deploy/funcao-api.ts        função "api" num arquivo só (para colar no painel)
+├── deploy/funcao-google.ts     função "google" num arquivo só
 ├── app/                        aplicativo (vai para o Netlify)
 └── dev/                        testes e geradores
     ├── gerar-app.py            gera app/ a partir das telas de crm-studio/
-    ├── montar-funcao.py        gera deploy/funcao-api.ts
-    ├── teste.ts                23 testes do servidor contra Postgres real
+    ├── montar-funcao.py        gera deploy/funcao-api.ts e deploy/funcao-google.ts
+    ├── teste.ts                39 testes do servidor contra Postgres real
+    ├── google-falso.ts         Google Agenda de mentira para os testes
     └── e2e.ts                  ponta a ponta: aplicativo + servidor + Postgres
 ```
 

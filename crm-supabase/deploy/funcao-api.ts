@@ -1,12 +1,12 @@
-// ARQUIVO GERADO por dev/montar-funcao.py — edite logica.ts / index.ts e gere de novo.
+// ARQUIVO GERADO por dev/montar-funcao.py — edite supabase/functions/ e gere de novo.
 // Cole TODO este conteúdo na função "api" do Supabase (Edge Functions).
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
 // =====================================================================
 //  CRM Lara Altoé — regras do servidor (Supabase Edge Function "api")
 //
-//  Este arquivo não importa nada: recebe o "banco" (db) e o "login" (auth)
-//  prontos. Assim ele roda igual no Supabase (Deno) e nos testes (Node +
+//  Este arquivo não importa nada: recebe o "banco" (db), o "login" (auth) e
+//  o acesso ao Google (fetch + chaves) prontos. Assim ele roda igual no Supabase (Deno) e nos testes (Node +
 //  Postgres local). As regras são as mesmas da versão Google Apps Script.
 // =====================================================================
 
@@ -35,9 +35,9 @@ export interface AuthAdmin {
   emails(): Promise<Record<string, string>>;
 }
 export type Sessao = { id: string; nome: string; perfil: string; email: string; trocarSenha: boolean };
-export type Ctx = { db: Db; auth: AuthAdmin; sess: Sessao; memo: Linha };
+export type Ctx = { db: Db; auth: AuthAdmin; sess: Sessao; memo: Linha; google?: GoogleDeps };
 
-export const VERSAO = '2.0.0';
+export const VERSAO = '2.1.0';
 
 // ------------------------------------------------------------------ erros
 export class ErroUsuario extends Error {
@@ -188,18 +188,18 @@ async function cfgGravar(ctx: Ctx, c: Linha) {
   await ctx.db.upsert('config', { chave: 'cfg', valor: c, atualizadoEm: new Date().toISOString() }, 'chave');
   ctx.memo.cfg = null;
 }
-function cfgPublica(c: Linha) {
+function cfgPublica(c: Linha, google = false) {
   return {
     studioNome: c.studioNome, responsavel: c.responsavel, telefone: c.telefone, endereco: c.endereco,
     instagram: c.instagram, pix: c.pix,
-    calendarAtivo: false, mostrarEventosGoogle: false,           // Google Agenda: fase 3
+    calendarAtivo: google, mostrarEventosGoogle: google && c.mostrarEventosGoogle !== false,
     horaAbertura: c.horaAbertura, horaFechamento: c.horaFechamento, intervaloAgenda: c.intervaloAgenda,
     diasInativa: c.diasInativa, sinalRetido: c.sinalRetido !== false,
     categoriasServico: c.categoriasServico, categoriasReceita: c.categoriasReceita,
     categoriasDespesa: c.categoriasDespesa, formasPagamento: c.formasPagamento, locais: c.locais,
     waAtivo: false, waConfirmacao: false,                         // WhatsApp automático: fase 4
     templates: { reativacao: c.templates.reativacao, aniversario: c.templates.aniversario, confirmacao: c.templates.confirmacao, lembrete1: c.templates.lembrete1 },
-    recursos: { google: false, whatsapp: false, importar: false }
+    recursos: { google: true, whatsapp: false, importar: google }
   };
 }
 
@@ -223,19 +223,20 @@ async function cfgSalvar(p: Linha, ctx: Ctx) {
     c[k] = v;
   }
   await cfgGravar(ctx, c);
-  return cfgPublica(await cfg(ctx));
+  return cfgPublica(await cfg(ctx), await gAtivo(ctx));
 }
 
 // ------------------------------------------------------------------ carga inicial
 async function boot(_p: Linha, ctx: Ctx) {
-  const [c, servicos, equipe, clientes] = await Promise.all([
+  const [c, servicos, equipe, clientes, google] = await Promise.all([
     cfg(ctx),
     ctx.db.sel('servicos', { ordem: 'nome' }),
     ctx.db.sel('profissionais', { ordem: 'nome' }),
-    ctx.db.sel('clientes', { cols: ['id', 'nome', 'telefone', 'nascimento'], ordem: 'nome' })
+    ctx.db.sel('clientes', { cols: ['id', 'nome', 'telefone', 'nascimento'], ordem: 'nome' }),
+    gAtivo(ctx)
   ]);
   ctx.db.upd('perfis', ctx.sess.id, { ultimoAcesso: new Date().toISOString() }).catch(() => {});
-  return { user: ctx.sess, versao: VERSAO, cfg: cfgPublica(c), servicos, equipe, clientes };
+  return { user: ctx.sess, versao: VERSAO, cfg: cfgPublica(c, google), servicos, equipe, clientes };
 }
 
 // ------------------------------------------------------------------ clientes
@@ -366,7 +367,7 @@ function agView(a: Linha, m: Linha) {
     profissionalId: a.profissionalId, profissionalNome: prof.nome || '',
     inicio: a.inicio.slice(0, 16), fim: a.fim.slice(0, 16), status: a.status,
     valor: num(a.valor), desconto: num(a.desconto), sinal: num(a.sinal),
-    local: a.local, observacoes: a.observacoes, syncStatus: a.syncStatus,
+    local: a.local, observacoes: a.observacoes, syncStatus: a.syncStatus, eventId: a.eventId,
     confirmEnviada: a.confirmEnviada, lembrete1Enviado: a.lembrete1Enviado, lembrete2Enviado: a.lembrete2Enviado,
     formaPagamento: a.formaPagamento, lancamentoId: a.lancamentoId, importado: !!a.origem
   };
@@ -377,10 +378,13 @@ async function agListar(p: Linha, ctx: Ctx) {
   const fim = dataOk(String(p.fim || ini).slice(0, 10));
   const f: Filtro = { gte: { inicio: ini + 'T00:00' }, lte: { inicio: fim + 'T23:59:59' }, ordem: 'inicio' };
   if (!p.incluirCancelados) f.neq = { status: 'cancelado' };
-  const ags = await ctx.db.sel('agendamentos', f);
+  const [ags, externos] = await Promise.all([
+    ctx.db.sel('agendamentos', f),
+    p.externos ? gExternos(ctx, ini, fim) : Promise.resolve([])
+  ]);
   const m = await mapas(ctx, ags.map((a) => a.clienteId));
   m.porProfissional = !!p.corPorProfissional;
-  return { agendamentos: ags.map((a) => agView(a, m)), externos: [] };
+  return { agendamentos: ags.map((a) => agView(a, m)), externos };
 }
 
 async function agObter(p: Linha, ctx: Ctx) {
@@ -468,8 +472,9 @@ async function agSalvar(p: Linha, ctx: Ctx) {
     await agTratarFinanceiro(a.id, p.financeiro, ctx);
   }
 
+  a = await gPush(a, ctx);
   const v: Linha = agView(a, await mapas(ctx, [a.clienteId]));
-  v.aviso = '';
+  v.aviso = String(a.syncStatus || '').indexOf('erro') === 0 ? 'Salvo no CRM, mas não foi para o Google Agenda: ' + a.syncStatus.slice(6) : '';
   return v;
 }
 
@@ -502,7 +507,7 @@ async function agStatus(p: Linha, ctx: Ctx) {
     for (const l of await finDoAgendamento(a.id, ctx)) if (l.categoria === 'Serviços') await ctx.db.del('financeiro', l.id);
     patch.lancamentoId = ''; patch.formaPagamento = '';
   }
-  const n = await ctx.db.upd('agendamentos', a.id, patch);
+  const n = await gPush(await ctx.db.upd('agendamentos', a.id, patch), ctx);
   return agView(n, await mapas(ctx, [n.clienteId]));
 }
 
@@ -514,13 +519,14 @@ async function agFinalizar(p: Linha, ctx: Ctx) {
   const forma = p.forma || 'Pix';
   a = await ctx.db.upd('agendamentos', a.id, { status: 'concluido', valor, desconto, formaPagamento: forma });
   const lanc = await finDoAtendimento(a, forma, p.pago !== false, ctx);
-  a = await ctx.db.upd('agendamentos', a.id, { lancamentoId: lanc ? lanc.id : '' });
+  a = await gPush(await ctx.db.upd('agendamentos', a.id, { lancamentoId: lanc ? lanc.id : '' }), ctx);
   return agView(a, await mapas(ctx, [a.clienteId]));
 }
 
 async function agExcluir(p: Linha, ctx: Ctx) {
   const a = await ctx.db.um('agendamentos', p.id);
   if (!a) return true;
+  if (a.eventId) await gPush(Object.assign({}, a, { status: 'cancelado' }), ctx);
   await agTratarFinanceiro(a.id, p.financeiro, ctx);
   await ctx.db.del('agendamentos', a.id);
   return true;
@@ -868,6 +874,516 @@ async function senhaTrocada(_p: Linha, ctx: Ctx) {
   return Object.assign({}, ctx.sess, { trocarSenha: false });
 }
 
+// ------------------------------------------------------------------ Google Agenda
+//  Conexão por OAuth (a dona autoriza uma vez), envio dos horários para a agenda,
+//  leitura das mudanças feitas no Google (syncToken) e importação de eventos.
+const G_ESCOPOS = 'openid email https://www.googleapis.com/auth/calendar';
+const G_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
+const G_TOKEN = 'https://oauth2.googleapis.com/token';
+const G_API = 'https://www.googleapis.com/calendar/v3';
+const FUSO = '-03:00'; // horário de Brasília (sem horário de verão desde 2019)
+const STATUS_EMOJI: Linha = { agendado: '🗓️', confirmado: '✅', concluido: '💖', faltou: '⚠️', remarcar: '🔁', cancelado: '❌' };
+const COR_CATEGORIA: Linha = { 'Maquiagem': '7', 'Sobrancelha': '4', 'Penteado': '6', 'Cílios': '9', 'Noivas & Eventos': '3', 'Outros': '8' };
+const brl = (v: number) => 'R$ ' + round2(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+export type GoogleDeps = { fetch: (u: string, o?: any) => Promise<any>; clientId: string; clientSecret: string; redirectUri: string };
+
+async function gCfg(ctx: Ctx): Promise<Linha> {
+  if (ctx.memo.google) return ctx.memo.google;
+  const r = await ctx.db.sel('config', { eq: { chave: 'google' } });
+  ctx.memo.google = (r[0] && r[0].valor) || {};
+  return ctx.memo.google;
+}
+async function gGravar(ctx: Ctx, patch: Linha, substituir = false) {
+  const r = await ctx.db.sel('config', { eq: { chave: 'google' } });
+  const g = substituir ? patch : Object.assign({}, (r[0] && r[0].valor) || {}, patch);
+  await ctx.db.upsert('config', { chave: 'google', valor: g, atualizadoEm: new Date().toISOString() }, 'chave');
+  ctx.memo.google = g;
+}
+/** Busca agendamentos pelos ids de evento do Google (em partes, para não estourar o tamanho da URL). */
+async function porEventos(ctx: Ctx, ids: string[], cols?: string[]): Promise<Linha[]> {
+  const out: Linha[] = [];
+  for (let i = 0; i < ids.length; i += 80) {
+    const f: Filtro = { in: { eventId: ids.slice(i, i + 80) } };
+    if (cols) f.cols = cols;
+    out.push(...(await ctx.db.sel('agendamentos', f)));
+  }
+  return out;
+}
+export const gConectado = async (ctx: Ctx) => gPronto(ctx) && !!(await gCfg(ctx)).refreshToken;
+const gPronto = (ctx: Ctx) => !!(ctx.google && ctx.google.clientId && ctx.google.clientSecret);
+async function gAtivo(ctx: Ctx) {
+  if (!gPronto(ctx)) return false;
+  const g = await gCfg(ctx);
+  return !!g.refreshToken && !g.pausado;
+}
+
+async function gToken(ctx: Ctx): Promise<string> {
+  const g = await gCfg(ctx);
+  if (!g.refreshToken) throw erro('O Google Agenda não está conectado.');
+  if (g.accessToken && g.expira > Date.now() + 60000) return g.accessToken;
+  const gd = ctx.google!;
+  const r = await gd.fetch(G_TOKEN, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: gd.clientId, client_secret: gd.clientSecret, refresh_token: g.refreshToken, grant_type: 'refresh_token' }).toString()
+  });
+  const j = await r.json();
+  if (!r.ok) {
+    if (j.error === 'invalid_grant') {
+      await gGravar(ctx, { refreshToken: '', accessToken: '', syncToken: '', erro: 'A conexão com o Google foi removida ou expirou. Conecte de novo.' });
+      throw erro('A conexão com o Google Agenda caiu. Em Configurações, toque em "Conectar Google Agenda" de novo.');
+    }
+    throw new Error('Google: ' + (j.error_description || j.error || r.status));
+  }
+  await gGravar(ctx, { accessToken: j.access_token, expira: Date.now() + Number(j.expires_in || 3600) * 1000, erro: '' });
+  return j.access_token;
+}
+
+async function gApi(ctx: Ctx, metodo: string, caminho: string, corpo?: any): Promise<any> {
+  const tk = await gToken(ctx);
+  const r = await ctx.google!.fetch(G_API + caminho, {
+    method: metodo, headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' },
+    body: corpo ? JSON.stringify(corpo) : undefined
+  });
+  if (r.status === 204) return null;
+  const txt = await r.text();
+  const j = txt ? JSON.parse(txt) : null;
+  if (!r.ok) {
+    const e: any = new Error('Google ' + r.status + ': ' + String((j && j.error && j.error.message) || txt).slice(0, 160));
+    e.status = r.status;
+    throw e;
+  }
+  return j;
+}
+const calPath = (g: Linha, id?: string) => '/calendars/' + encodeURIComponent(id || g.calendarId || 'primary');
+const evPath = (g: Linha, evId: string, calId?: string) => calPath(g, calId) + '/events/' + encodeURIComponent(evId);
+const paraGoogle = (s: string) => ({ dateTime: s.slice(0, 16) + ':00', timeZone: TZ });
+const doGoogle = (t: Linha) => (t && t.dateTime ? local(new Date(t.dateTime)) : (t && t.date) || '');
+
+/** Envia o atendimento para o Google Agenda (cria, atualiza ou apaga). Nunca derruba a ação: grava syncStatus. */
+async function gPush(a: Linha, ctx: Ctx): Promise<Linha> {
+  if (!(await gAtivo(ctx))) return a;
+  const g = await gCfg(ctx);
+  const c = await cfg(ctx);
+  let patch: Linha = {};
+  try {
+    if (a.status === 'cancelado') {
+      if (a.eventId) await gApi(ctx, 'DELETE', evPath(g, a.eventId)).catch((e) => { if (e.status !== 404 && e.status !== 410) throw e; });
+      patch = { eventId: '', syncStatus: 'removido' };
+    } else {
+      const [cli, prof] = await Promise.all([
+        a.clienteId ? ctx.db.um('clientes', a.clienteId) : Promise.resolve(null),
+        a.profissionalId ? ctx.db.um('profissionais', a.profissionalId) : Promise.resolve(null)
+      ]);
+      const nome = (cli && cli.nome) || a.clienteNome;
+      const tel = (cli && cli.telefone) || a.telefone;
+      const total = num(a.valor) - num(a.desconto);
+      const descricao = [
+        '👤 Cliente: ' + nome,
+        tel ? '📱 WhatsApp: https://wa.me/' + tel : '',
+        '✨ Serviços: ' + a.servicoNomes,
+        prof ? '💄 Profissional: ' + prof.nome : '',
+        '💰 Valor: ' + brl(total) + (num(a.sinal) ? ' (sinal pago: ' + brl(num(a.sinal)) + ')' : ''),
+        '📌 Status: ' + a.status,
+        cli && cli.alergias ? '⚠️ Alergias: ' + cli.alergias : '',
+        a.observacoes ? '📝 ' + a.observacoes : ''
+      ].filter(Boolean).join('\n') + '\n\nCriado pelo ' + (c.studioNome || 'CRM');
+      const servs = a.servicos || [];
+      const corpo: Linha = {
+        summary: (STATUS_EMOJI[a.status] || '') + ' ' + nome + ' — ' + a.servicoNomes,
+        description: descricao,
+        location: !a.local || a.local === 'Studio' ? (c.endereco || c.studioNome) : a.local,
+        start: paraGoogle(a.inicio), end: paraGoogle(a.fim), status: 'confirmed',
+        colorId: a.status === 'concluido' ? '10' : a.status === 'faltou' ? '8' : (COR_CATEGORIA[(servs[0] || {}).categoria] || '7')
+      };
+      let ev: Linha | null = null;
+      if (a.eventId) {
+        try { ev = await gApi(ctx, 'PATCH', evPath(g, a.eventId), corpo); } catch (e: any) {
+          if (e.status !== 404 && e.status !== 410) throw e;
+          // trocou de agenda: apaga o evento que ficou na agenda antiga
+          if (g.calendarAnterior) await gApi(ctx, 'DELETE', evPath(g, a.eventId, g.calendarAnterior)).catch(() => {});
+        }
+      }
+      if (!ev) {
+        const min = num(c.lembreteAgendaMin);
+        corpo.reminders = min > 0 ? { useDefault: false, overrides: [{ method: 'popup', minutes: min }] } : { useDefault: true };
+        ev = await gApi(ctx, 'POST', calPath(g) + '/events', corpo);
+      }
+      patch = { eventId: ev!.id, syncStatus: 'ok' };
+    }
+  } catch (e: any) {
+    patch = { syncStatus: 'erro: ' + String(e.message || e).slice(0, 120) };
+  }
+  if (patch.eventId === a.eventId && patch.syncStatus === a.syncStatus) return a;
+  return ctx.db.upd('agendamentos', a.id, patch);
+}
+
+/** Eventos do Google no período (compromissos pessoais etc.), já expandidos (singleEvents). */
+async function gEventos(ctx: Ctx, ini: string, fim: string): Promise<Linha[]> {
+  const g = await gCfg(ctx);
+  const out: Linha[] = [];
+  let pageToken = '';
+  do {
+    const q = new URLSearchParams({ timeMin: ini + 'T00:00:00' + FUSO, timeMax: fim + 'T23:59:59' + FUSO, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
+    if (pageToken) q.set('pageToken', pageToken);
+    const j = await gApi(ctx, 'GET', calPath(g) + '/events?' + q.toString());
+    out.push(...(j.items || []));
+    pageToken = j.nextPageToken || '';
+  } while (pageToken && out.length < 2000);
+  return out.filter((e) => e.status !== 'cancelled');
+}
+
+async function gExternos(ctx: Ctx, ini: string, fim: string): Promise<Linha[]> {
+  const c = await cfg(ctx);
+  if (!(await gAtivo(ctx)) || c.mostrarEventosGoogle === false) return [];
+  try {
+    const evs = await gEventos(ctx, ini, fim);
+    const ids = evs.map((e) => e.id);
+    const ligados = new Set((await porEventos(ctx, ids, ['eventId'])).map((a) => a.eventId));
+    return evs.filter((e) => !ligados.has(e.id)).map((e) => ({
+      id: e.id, titulo: e.summary || '(sem título)', diaTodo: !!(e.start && e.start.date),
+      inicio: doGoogle(e.start), fim: doGoogle(e.end)
+    }));
+  } catch (e) { console.warn('externos:', e); return []; }
+}
+
+/** Lê o que mudou no Google desde a última vez (remarcações e exclusões feitas direto na agenda). */
+export async function gPull(ctx: Ctx): Promise<Linha> {
+  if (!(await gAtivo(ctx))) return { conectado: false };
+  let g = await gCfg(ctx);
+  const res: Linha = { remarcados: 0, cancelados: 0 };
+  const mudados: Linha[] = [];
+  let pageToken = '', novoToken = '';
+  const inicial = !g.syncToken;
+  do {
+    const q = new URLSearchParams({ maxResults: '2500', showDeleted: 'true' });
+    if (g.syncToken) q.set('syncToken', g.syncToken);
+    if (pageToken) q.set('pageToken', pageToken);
+    if (inicial) q.set('fields', 'items(id),nextPageToken,nextSyncToken');
+    let j: Linha;
+    try { j = await gApi(ctx, 'GET', calPath(g) + '/events?' + q.toString()); } catch (e: any) {
+      if (e.status === 410) { await gGravar(ctx, { syncToken: '' }); return gPull(ctx); }
+      throw e;
+    }
+    if (!inicial) mudados.push(...(j.items || []));
+    pageToken = j.nextPageToken || '';
+    if (!pageToken) novoToken = j.nextSyncToken || '';
+  } while (pageToken);
+
+  if (mudados.length) {
+    const ids = mudados.map((e) => e.id);
+    const ags = await porEventos(ctx, ids);
+    const porEvento: Linha = {};
+    for (const a of ags) porEvento[a.eventId] = a;
+    for (const ev of mudados) {
+      const a = porEvento[ev.id];
+      if (!a || a.status === 'cancelado') continue;
+      if (ev.status === 'cancelled') {
+        await agTratarFinanceiro(a.id, 'padrao', ctx);
+        await ctx.db.upd('agendamentos', a.id, { status: 'cancelado', eventId: '', syncStatus: 'apagado no Google Agenda', lancamentoId: '', formaPagamento: '' });
+        res.cancelados++;
+        continue;
+      }
+      const ini = doGoogle(ev.start).slice(0, 16), fim = doGoogle(ev.end).slice(0, 16);
+      if (ini.length < 16 || fim.length < 16) continue; // virou "dia todo": ignora
+      if (ini === a.inicio.slice(0, 16) && fim === a.fim.slice(0, 16)) continue; // nada mudou (ou foi o próprio CRM)
+      const patch: Linha = { inicio: ini, fim, syncStatus: 'horário mudado no Google Agenda' };
+      if (ini !== a.inicio.slice(0, 16)) {
+        patch.lembrete1Enviado = ''; patch.lembrete2Enviado = '';
+        if (a.status === 'remarcar') patch.status = 'agendado';
+      }
+      await ctx.db.upd('agendamentos', a.id, patch);
+      res.remarcados++;
+    }
+  }
+  await gGravar(ctx, novoToken ? { syncToken: novoToken, ultimaSync: agora() } : { ultimaSync: agora() });
+  res.inicial = inicial;
+  return res;
+}
+
+// ---------- conexão (OAuth)
+async function gStatus(_p: Linha, ctx: Ctx) {
+  const g = await gCfg(ctx);
+  const c = await cfg(ctx);
+  return {
+    configurado: gPronto(ctx), conectado: !!g.refreshToken, email: g.email || '', calendarId: g.calendarId || 'primary',
+    calendarNome: g.calendarNome || '', ultimaSync: g.ultimaSync || '', erro: g.erro || '',
+    ativo: !g.pausado, mostrarEventosGoogle: c.mostrarEventosGoogle !== false, lembreteAgendaMin: c.lembreteAgendaMin
+  };
+}
+async function gIniciar(p: Linha, ctx: Ctx) {
+  if (!gPronto(ctx)) throw erro('Falta cadastrar GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET em Edge Functions → Secrets no Supabase.');
+  const volta = String(p.volta || '');
+  if (!/^https?:\/\//.test(volta)) throw erro('Endereço de retorno inválido.');
+  const estado = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+  await ctx.db.upsert('config', { chave: 'google_estado', valor: { estado, volta, usuario: ctx.sess.id, expira: Date.now() + 15 * 60000 }, atualizadoEm: new Date().toISOString() }, 'chave');
+  const q = new URLSearchParams({
+    client_id: ctx.google!.clientId, redirect_uri: ctx.google!.redirectUri, response_type: 'code', scope: G_ESCOPOS,
+    access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado
+  });
+  return { url: G_AUTH + '?' + q.toString() };
+}
+/** Retorno do Google depois da autorização (chamado pela função "google", sem login do CRM). Devolve para onde redirecionar. */
+export async function googleCallback(q: Linha, ctx: Ctx): Promise<string> {
+  const r = await ctx.db.sel('config', { eq: { chave: 'google_estado' } });
+  const est = (r[0] && r[0].valor) || {};
+  const volta = est.volta || '/';
+  const ir = (s: string, msg?: string) => volta + (volta.includes('?') ? '&' : '?') + 'google=' + s + (msg ? '&msg=' + encodeURIComponent(msg) : '');
+  if (!q.state || q.state !== est.estado || !(est.expira > Date.now())) return ir('erro', 'O link de conexão expirou. Tente de novo.');
+  await ctx.db.upsert('config', { chave: 'google_estado', valor: {}, atualizadoEm: new Date().toISOString() }, 'chave');
+  if (q.error || !q.code) return ir('erro', q.error === 'access_denied' ? 'A autorização foi cancelada.' : 'O Google não autorizou: ' + (q.error || 'sem código'));
+  const gd = ctx.google!;
+  const resp = await gd.fetch(G_TOKEN, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code: q.code, client_id: gd.clientId, client_secret: gd.clientSecret, redirect_uri: gd.redirectUri, grant_type: 'authorization_code' }).toString()
+  });
+  const j = await resp.json();
+  if (!resp.ok || !j.refresh_token) return ir('erro', 'Não consegui concluir a conexão: ' + (j.error_description || j.error || 'sem permissão de acesso contínuo'));
+  let email = '';
+  try { email = JSON.parse(atob(String(j.id_token || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).email || ''; } catch (_) { /* sem e-mail */ }
+  const antes = await gCfg(ctx);
+  await gGravar(ctx, {
+    pausado: false, calendarAnterior: '', refreshToken: j.refresh_token, accessToken: j.access_token, expira: Date.now() + Number(j.expires_in || 3600) * 1000,
+    email, calendarId: antes.calendarId || 'primary', calendarNome: antes.calendarNome || '', conectadoEm: agora(), syncToken: '', erro: ''
+  }, true);
+  try { await gPull(ctx); } catch (e) { console.warn('primeira sincronização:', e); }
+  return ir('ok');
+}
+async function gDesconectar(_p: Linha, ctx: Ctx) {
+  const g = await gCfg(ctx);
+  if (g.refreshToken && ctx.google) {
+    await ctx.google.fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(g.refreshToken), { method: 'POST' }).catch(() => {});
+  }
+  await gGravar(ctx, { calendarId: g.calendarId || 'primary', calendarNome: g.calendarNome || '' }, true);
+  return true;
+}
+async function gCalendarios(_p: Linha, ctx: Ctx) {
+  const j = await gApi(ctx, 'GET', '/users/me/calendarList?minAccessRole=writer');
+  const g = await gCfg(ctx);
+  return {
+    email: g.email || '',
+    lista: (j.items || []).map((c: Linha) => ({ id: c.primary ? 'primary' : c.id, nome: c.summaryOverride || c.summary + (c.primary ? ' (principal)' : '') }))
+  };
+}
+async function gSalvar(p: Linha, ctx: Ctx) {
+  const c = JSON.parse(JSON.stringify(await cfg(ctx)));
+  if (p.mostrarEventosGoogle !== undefined) c.mostrarEventosGoogle = p.mostrarEventosGoogle === true || p.mostrarEventosGoogle === 'true';
+  if (p.lembreteAgendaMin !== undefined) c.lembreteAgendaMin = num(p.lembreteAgendaMin);
+  await cfgGravar(ctx, c);
+  if (p.ativo !== undefined) await gGravar(ctx, { pausado: !(p.ativo === true || p.ativo === 'true') });
+  const g = await gCfg(ctx);
+  if (p.calendarId && p.calendarId !== (g.calendarId || 'primary')) {
+    const lista = (await gCalendarios({}, ctx)).lista;
+    const escolhida = lista.find((x: Linha) => x.id === p.calendarId);
+    if (!escolhida) throw erro('Essa agenda não aparece na conta conectada (ou está só para visualização).');
+    await gGravar(ctx, { calendarAnterior: g.calendarId || 'primary', calendarId: p.calendarId, calendarNome: escolhida.nome, syncToken: '' });
+    return Object.assign(await gStatus({}, ctx), { trocouAgenda: true });
+  }
+  return gStatus({}, ctx);
+}
+async function gSincronizar(_p: Linha, ctx: Ctx) {
+  if (!(await gAtivo(ctx))) throw erro('Conecte o Google Agenda primeiro.');
+  return gPull(ctx);
+}
+async function agRessincronizar(_p: Linha, ctx: Ctx) {
+  if (!(await gAtivo(ctx))) throw erro('Conecte o Google Agenda primeiro.');
+  const ags = await ctx.db.sel('agendamentos', { gte: { inicio: hoje() + 'T00:00' }, neq: { status: 'cancelado' } });
+  let n = 0, erros = 0;
+  for (const a of ags) { const r = await gPush(a, ctx); if (String(r.syncStatus).indexOf('erro') === 0) erros++; else n++; }
+  return { sincronizados: n, erros };
+}
+
+// ---------- importar eventos que já estavam no Google (mesmas regras da versão Apps Script)
+const IMP_IGNORAR = ['make', 'maquiagem', 'makeup', 'maquiar', 'sobrancelha', 'sobrancelhas', 'design', 'henna', 'penteado', 'escova',
+  'cilios', 'cilio', 'noiva', 'noivas', 'madrinha', 'madrinhas', 'pacote', 'social', 'brow', 'lamination', 'studio', 'atendimento',
+  'cliente', 'sinal', 'pago', 'paga', 'pix', 'r', 'e', 'de', 'da', 'do', 'das', 'dos', 'com', 'para', 'pra', 'no', 'na', 'x', 'teste',
+  'formatura', 'casamento', 'festa', 'evento', 'aniversario', 'domicilio', 'hora', 'horario'];
+const IMP_GRUPOS = [
+  { chaves: ['make', 'maquiagem', 'makeup', 'maquiar', 'noiva', 'madrinha'], base: 'maquiagem', padrao: 'social', prefer: [['noiva', 'noiva'], ['madrinha', 'madrinha']] },
+  { chaves: ['penteado', 'cabelo', 'escova', 'babyliss', 'tranca', 'coque'], base: 'penteado', padrao: 'social', prefer: [['escova', 'escova'], ['noiva', 'noiva']] },
+  { chaves: ['sobrancelha', 'sobrancelhas', 'design', 'henna', 'brow', 'lamination'], base: 'sobrancelha', padrao: 'design', prefer: [['henna', 'henna'], ['brow', 'lamination'], ['lamination', 'lamination']] },
+  { chaves: ['cilio', 'cilios', 'extensao', 'lash'], base: 'cilios', padrao: '', prefer: [] as string[][] }
+];
+export const norm = (s: any) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+function impServicos(nx: string, servicos: Linha[]): Linha[] {
+  const tem = (w: string) => nx.indexOf(' ' + w) >= 0;
+  const nomes = servicos.map((s) => ({ s, n: norm(s.nome) }));
+  const escolhidos: Linha[] = [];
+  const add = (s: Linha | null) => { if (s && escolhidos.indexOf(s) < 0) escolhidos.push(s); };
+  if (tem('pacote') || tem('combo')) {
+    const pac = nomes.find((x) => x.n.indexOf('pacote') >= 0 || x.n.indexOf('combo') >= 0);
+    if (pac) return [pac.s];
+  }
+  for (const x of nomes) if (x.n && nx.indexOf(' ' + x.n + ' ') >= 0) add(x.s);
+  const jaCobre = (g: Linha) => escolhidos.some((s) => { const n = norm(s.nome); return n.indexOf(g.base) >= 0 || g.chaves.some((c: string) => n.split(' ').indexOf(c) >= 0); });
+  const temMaqOuPent = ['make', 'maquiagem', 'makeup', 'maquiar', 'penteado', 'cabelo', 'escova'].some(tem);
+  for (const g of IMP_GRUPOS) {
+    const acionado = g.chaves.some((c) => ((c === 'noiva' || c === 'madrinha') && temMaqOuPent) ? false : tem(c));
+    if (!acionado || jaCobre(g)) continue;
+    let achou: Linha | null = null;
+    for (const [palavra, trecho] of g.prefer) {
+      if (achou || !tem(palavra)) continue;
+      const cand = nomes.filter((x) => x.n.indexOf(trecho) >= 0 && x.n.indexOf('pacote') < 0);
+      achou = (cand.find((x) => x.n.indexOf(g.base) >= 0) || cand[0] || { s: null }).s;
+    }
+    if (!achou) {
+      const base = nomes.filter((x) => x.n.indexOf(g.base) >= 0 && x.n.indexOf('pacote') < 0 && x.n.indexOf('noiva') < 0 && x.n.indexOf('madrinha') < 0);
+      const qualquer = nomes.filter((x) => x.n.indexOf(g.base) >= 0 && x.n.indexOf('pacote') < 0);
+      achou = ((g.padrao && base.find((x) => x.n.indexOf(g.padrao) >= 0)) || base[0] || qualquer[0] || { s: null }).s;
+    }
+    add(achou);
+  }
+  return escolhidos;
+}
+
+export function impSugerir(titulo: string, desc: string, clientes: Linha[], servicos: Linha[]) {
+  const texto = titulo + ' ' + desc;
+  const nt = ' ' + norm(titulo) + ' ', nx = ' ' + norm(texto) + ' ';
+  let tel = '';
+  const mt = texto.match(/(?:\+?55[\s.-]*)?\(?\d{2}\)?[\s.-]*9?[\s.-]*\d{4}[\s.-]?\d{4}/);
+  if (mt) { tel = fone(mt[0]); if (tel.length < 12 || tel.length > 13) tel = ''; }
+  let cliente: Linha | null = null;
+  if (tel) { const k = foneChave(tel); cliente = clientes.find((c) => c.telefone && foneChave(c.telefone) === k) || null; }
+  if (!cliente) {
+    const cand: Linha[] = [];
+    for (const c of clientes) {
+      const n = norm(c.nome); if (!n) continue;
+      const partes = n.split(' ');
+      let score = 0;
+      if (nx.indexOf(' ' + n + ' ') >= 0) score = 3;
+      else if (partes.length > 1 && nt.indexOf(' ' + partes[0] + ' ') >= 0 && nt.indexOf(' ' + partes[partes.length - 1] + ' ') >= 0) score = 2;
+      else if (partes[0].length >= 3 && nt.indexOf(' ' + partes[0] + ' ') >= 0) score = 1;
+      if (score) cand.push({ c, score });
+    }
+    cand.sort((a, b) => b.score - a.score);
+    const soPrimeiro = cand.filter((x) => x.score === 1).length;
+    if (cand.length && (cand[0].score >= 2 || soPrimeiro === 1)) cliente = cand[0].c;
+  }
+  const serv = impServicos(nx, servicos);
+  let valor: number | null = null;
+  const mv = texto.match(/R\$\s*(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i);
+  if (mv) valor = num(mv[1]);
+  let nomeNovo = '';
+  if (!cliente) {
+    const palavrasServ: Linha = {};
+    for (const s of serv) for (const w of norm(s.nome).split(' ')) palavrasServ[w] = 1;
+    const limpo = titulo.replace(/R\$\s*[\d.,]+/g, ' ').replace(/\d+/g, ' ');
+    nomeNovo = limpo.split(/[^A-Za-zÀ-ÿ']+/).filter((w) => { const n = norm(w); return n.length > 1 && IMP_IGNORAR.indexOf(n) < 0 && !palavrasServ[n]; })
+      .slice(0, 4).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  }
+  return { clienteId: cliente ? cliente.id : '', clienteNome: cliente ? cliente.nome : '', nomeNovo, telefone: tel,
+    servicoIds: serv.map((x) => x.id), valor, provavel: !!(cliente || tel || serv.length) };
+}
+
+async function impPrevia(p: Linha, ctx: Ctx) {
+  if (!(await gAtivo(ctx))) throw erro('Conecte o Google Agenda em Configurações primeiro.');
+  const ini = /^\d{4}-\d{2}-\d{2}$/.test(p.inicio || '') ? dataOk(p.inicio) : addMeses(hoje(), -1);
+  const fim = /^\d{4}-\d{2}-\d{2}$/.test(p.fim || '') ? dataOk(p.fim) : addMeses(hoje(), 6);
+  if (fim < ini) throw erro('A data final precisa ser depois da inicial.');
+  const [evs, clientes, servicos, g] = await Promise.all([
+    gEventos(ctx, ini, fim), ctx.db.sel('clientes', { cols: ['id', 'nome', 'telefone'] }),
+    ctx.db.sel('servicos', { eq: { ativo: true } }), gCfg(ctx)
+  ]);
+  const ids = evs.map((e) => e.id);
+  const ligados = new Set((await porEventos(ctx, ids, ['eventId'])).map((a) => a.eventId));
+  const out: Linha[] = [];
+  const vistosRec: Linha = {};
+  for (const ev of evs) {
+    if (ligados.has(ev.id) || (ev.start && ev.start.date)) continue;
+    const desc = String(ev.description || '');
+    if (/Criado pelo /.test(desc)) continue;
+    const recorrente = !!ev.recurringEventId;
+    if (recorrente) { if (vistosRec[ev.recurringEventId]) continue; vistosRec[ev.recurringEventId] = 1; }
+    const titulo = String(ev.summary || '');
+    const sug = impSugerir(titulo, desc, clientes, servicos);
+    out.push({ eventId: ev.id, titulo, descricao: desc.slice(0, 300), recorrente, inicio: doGoogle(ev.start), fim: doGoogle(ev.end),
+      clienteId: sug.clienteId, clienteNome: sug.clienteNome, nomeNovo: sug.nomeNovo, telefone: sug.telefone,
+      servicoIds: sug.servicoIds, valor: sug.valor, provavel: sug.provavel && !recorrente });
+  }
+  return { eventos: out.slice(0, 600), total: out.length, agenda: g.calendarNome || g.email || 'Google Agenda', inicio: ini, fim };
+}
+
+async function impAcharOuCriarCliente(nome: string, telefone: string, ctx: Ctx) {
+  nome = String(nome || '').trim();
+  const tel = fone(telefone);
+  const todos = await ctx.db.sel('clientes', { cols: ['id', 'nome', 'telefone'] });
+  let achada = tel && tel.length >= 12 ? todos.find((c) => c.telefone && foneChave(c.telefone) === foneChave(tel)) : null;
+  if (!achada) achada = todos.find((c) => norm(c.nome) === norm(nome));
+  if (achada) {
+    if (tel && tel.length >= 12 && !achada.telefone) await ctx.db.upd('clientes', achada.id, { telefone: tel });
+    return { id: achada.id, nova: false };
+  }
+  return { id: (await cliSalvar({ nome, telefone: tel, forcar: true }, ctx)).id, nova: true };
+}
+
+async function impImportar(p: Linha, ctx: Ctx) {
+  if (!(await gAtivo(ctx))) throw erro('Conecte o Google Agenda em Configurações primeiro.');
+  const g = await gCfg(ctx);
+  const itens = (p.itens || []).slice(0, 40);
+  const ids = itens.map((i: Linha) => i.eventId);
+  const ligados = new Set((await porEventos(ctx, ids, ['eventId'])).map((a) => a.eventId));
+  const servMap: Linha = {};
+  for (const s of await ctx.db.sel('servicos')) servMap[s.id] = s;
+  const ag = agora().slice(0, 16);
+  const res: Linha = { importados: 0, clientesNovas: 0, lancados: 0, erros: [] };
+  for (const it of itens) {
+    try {
+      if (ligados.has(it.eventId)) continue;
+      const ev = await gApi(ctx, 'GET', evPath(g, it.eventId)).catch((e: any) => { if (e.status === 404) return null; throw e; });
+      if (!ev || ev.status === 'cancelled') throw new Error('evento não encontrado na agenda');
+      if (ev.recurringEventId || ev.recurrence) throw new Error('evento que se repete não pode ser importado');
+      let clienteId = it.clienteId;
+      if (!clienteId) {
+        if (!it.novaCliente || !String(it.novaCliente.nome || '').trim()) throw new Error('informe a cliente');
+        const r = await impAcharOuCriarCliente(it.novaCliente.nome, it.novaCliente.telefone, ctx);
+        clienteId = r.id; if (r.nova) res.clientesNovas++;
+      }
+      const cli = await ctx.db.um('clientes', clienteId);
+      if (!cli) throw new Error('cliente não encontrada');
+      const servs = (it.servicoIds || []).map((id: string) => servMap[id]).filter(Boolean)
+        .map((s: Linha) => ({ id: s.id, nome: s.nome, categoria: s.categoria, preco: num(s.preco), duracao: num(s.duracao), cor: s.cor }));
+      if (!servs.length) throw new Error('escolha o serviço');
+      const inicio = doGoogle(ev.start).slice(0, 16), fim = doGoogle(ev.end).slice(0, 16);
+      const valor = it.valor !== null && it.valor !== undefined && it.valor !== '' ? round2(num(it.valor)) : servs.reduce((t: number, s: Linha) => t + s.preco, 0);
+      const original = String(ev.description || '').trim(), titulo = String(ev.summary || '').trim();
+      const localOriginal = String(ev.location || '').trim();
+      const a = await ctx.db.ins('agendamentos', {
+        clienteId: cli.id, clienteNome: cli.nome, telefone: cli.telefone, servicos: servs, servicoNomes: servs.map((s: Linha) => s.nome).join(' + '),
+        profissionalId: it.profissionalId || '', inicio, fim, status: fim <= ag ? 'concluido' : 'agendado',
+        valor, desconto: 0, sinal: 0, local: localOriginal || 'Studio',
+        observacoes: ('Importado do Google Agenda: "' + titulo + '"' + (original ? '\n' + original : '')).slice(0, 3000),
+        eventId: ev.id, syncStatus: 'ok', origem: { titulo, descricao: original, local: localOriginal, cor: ev.colorId || '' }
+      });
+      if (a.status === 'concluido') {
+        if (p.lancarPassados) {
+          const l = await finDoAtendimento(a, 'Não informado', true, ctx);
+          if (l) { await ctx.db.upd('agendamentos', a.id, { lancamentoId: l.id }); res.lancados++; }
+        }
+      } else if (p.renomear !== false) await gPush(a, ctx);
+      ligados.add(it.eventId);
+      res.importados++;
+    } catch (e: any) { res.erros.push({ eventId: it.eventId, erro: String(e.message || e) }); }
+  }
+  return res;
+}
+
+async function impDesfazer(p: Linha, ctx: Ctx) {
+  const a = await ctx.db.um('agendamentos', p.id);
+  if (!a) throw erro('Agendamento não encontrado.');
+  const o = a.origem;
+  if (!o) throw erro('Este atendimento não veio do Google Agenda.');
+  if (a.eventId && (await gAtivo(ctx))) {
+    const g = await gCfg(ctx);
+    const corpo: Linha = { summary: o.titulo || '', description: o.descricao || '', location: o.local || '' };
+    if (o.cor) corpo.colorId = o.cor;
+    await gApi(ctx, 'PATCH', evPath(g, a.eventId), corpo).catch(() => {});
+  }
+  await agTratarFinanceiro(a.id, 'remover', ctx);
+  await ctx.db.del('agendamentos', a.id);
+  return true;
+}
+
 // ------------------------------------------------------------------ rotas
 const emBreve = (fase: number) => async () => { throw erro(`Disponível na fase ${fase} da versão nova.`); };
 type Rota = { fn: (p: Linha, ctx: Ctx) => Promise<any>; admin?: boolean };
@@ -901,12 +1417,19 @@ export const ROTAS: Record<string, Rota> = {
   'usuarios.listar': { fn: usrListar, admin: true },
   'usuarios.salvar': { fn: usrSalvar, admin: true },
   'usuarios.excluir': { fn: usrExcluir, admin: true },
-  // próximas fases
-  'agenda.ressincronizar': { fn: emBreve(3), admin: true },
-  'agenda.importarPrevia': { fn: emBreve(3), admin: true },
-  'agenda.importar': { fn: emBreve(3), admin: true },
-  'agenda.desfazerImportacao': { fn: emBreve(3), admin: true },
-  'cfg.calendarios': { fn: emBreve(3), admin: true },
+  // Google Agenda
+  'google.status': { fn: gStatus, admin: true },
+  'google.iniciar': { fn: gIniciar, admin: true },
+  'google.desconectar': { fn: gDesconectar, admin: true },
+  'google.calendarios': { fn: gCalendarios, admin: true },
+  'google.salvar': { fn: gSalvar, admin: true },
+  'google.sincronizar': { fn: gSincronizar, admin: true },
+  'cfg.calendarios': { fn: gCalendarios, admin: true },
+  'agenda.ressincronizar': { fn: agRessincronizar, admin: true },
+  'agenda.importarPrevia': { fn: impPrevia, admin: true },
+  'agenda.importar': { fn: impImportar, admin: true },
+  'agenda.desfazerImportacao': { fn: impDesfazer, admin: true },
+  // próxima fase
   'wa.config': { fn: emBreve(4), admin: true },
   'wa.salvarConfig': { fn: emBreve(4), admin: true },
   'wa.testar': { fn: emBreve(4), admin: true },
@@ -931,12 +1454,11 @@ export async function executar(action: string, payload: Linha, ctx: Ctx): Promis
 
 
 // =====================================================================
-//  CRM Lara Altoé — função "api" do Supabase (porta de entrada do servidor)
-//  Confere o login (Supabase Auth) e o perfil, e executa a ação pedida.
-//  As regras do CRM ficam em logica.ts.
+//  Adaptador Supabase: "db" (tabelas) e "auth" (logins) usados pelas funções.
 // =====================================================================
 
-const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+
+export const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
@@ -954,7 +1476,7 @@ function aplicarFiltro(q: any, f: Filtro = {}) {
 }
 const falhou = (error: any) => { if (error) throw new Error(error.message || String(error)); };
 
-const db: Db = {
+export const db: Db = {
   async sel(tabela, f = {}) {
     if (f.in && Object.values(f.in).some((arr) => !arr.length)) return [];
     const cols = f.cols ? f.cols.map(snake).join(',') : '*';
@@ -1000,7 +1522,7 @@ const db: Db = {
   }
 };
 
-const auth: AuthAdmin = {
+export const auth: AuthAdmin = {
   async criar(email, senha) {
     const { data, error } = await sb.auth.admin.createUser({ email, password: senha, email_confirm: true });
     falhou(error);
@@ -1022,6 +1544,22 @@ const auth: AuthAdmin = {
   }
 };
 
+
+/** Dependências da integração com o Google Agenda (segredos ficam em Edge Functions → Secrets). */
+export const googleDeps = {
+  fetch: (u: string, o?: RequestInit) => fetch(u, o),
+  clientId: Deno.env.get('GOOGLE_CLIENT_ID') || '',
+  clientSecret: Deno.env.get('GOOGLE_CLIENT_SECRET') || '',
+  redirectUri: (Deno.env.get('SUPABASE_URL') || '') + '/functions/v1/google'
+};
+
+
+// =====================================================================
+//  CRM Lara Altoé — função "api" do Supabase (porta de entrada do servidor)
+//  Confere o login (Supabase Auth) e o perfil, e executa a ação pedida.
+//  As regras do CRM ficam em logica.ts.
+// =====================================================================
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -1041,7 +1579,7 @@ Deno.serve(async (req) => {
     }
     const sess = { id: perfil.id, nome: perfil.nome, perfil: perfil.perfil, email: u.user.email || '', trocarSenha: !!perfil.trocarSenha };
     const { action, payload } = await req.json();
-    return resposta(await executar(String(action || ''), payload || {}, { db, auth, sess, memo: {} }));
+    return resposta(await executar(String(action || ''), payload || {}, { db, auth, sess, memo: {}, google: googleDeps }));
   } catch (e) {
     console.error(e);
     return resposta({ ok: false, error: 'Erro no servidor: ' + ((e as Error).message || String(e)) });
