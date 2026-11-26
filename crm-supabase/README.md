@@ -54,6 +54,8 @@ O CRM atual (Google) continua funcionando. O novo fica num endereço separado at
 ### 1. Complemento do banco
 Em **SQL Editor → New query**, cole [`supabase/03_fase2.sql`](supabase/03_fase2.sql) e clique em **Run**. Deve aparecer **"Fase 2 ok"**.
 
+Depois, cole também [`supabase/04_permissoes.sql`](supabase/04_permissoes.sql) e clique em **Run**. Deve aparecer **"Permissões ok"**. Ele dá ao servidor permissão de usar as tabelas; sem isso aparece *"permission denied for table perfis"*.
+
 ### 2. Criar a função `api` (o servidor)
 1. No menu da esquerda, abra **Edge Functions**.
 2. Clique em **Deploy a new function → Via Editor**.
@@ -83,6 +85,7 @@ crm-supabase/
 │   ├── 01_estrutura.sql        tabelas, índices, regras e segurança (RLS)
 │   ├── 02_primeira_admin.sql   transforma o primeiro login em administradora
 │   ├── 03_fase2.sql            senha provisória + resumo de clientes (view)
+│   ├── 04_permissoes.sql       permissão do servidor nas tabelas (projetos novos)
 │   └── functions/api/
 │       ├── logica.ts           regras do CRM (agenda, financeiro, relatórios…)
 │       └── index.ts            porta de entrada: confere login e perfil

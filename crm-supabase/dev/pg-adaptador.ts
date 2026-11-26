@@ -11,11 +11,15 @@ export async function criarBanco() {
   const sql = (q: string, v: any[] = []) => cli.query(q, v);
 
   // ---------- imita o Supabase e cria o banco com os MESMOS arquivos que vão para o Supabase
-  await sql(`create role anon nologin; create role authenticated nologin; create schema auth;
+  // service_role: como nos projetos NOVOS do Supabase — ignora RLS, mas SEM permissão automática nas tabelas
+  await sql(`create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
+    create schema auth;
     create table auth.users (id uuid primary key default gen_random_uuid(), email text unique, created_at timestamptz default now());
     grant usage on schema public to anon, authenticated;
     alter default privileges in schema public grant all on tables to anon, authenticated;`);
-  for (const f of ['01_estrutura.sql', '03_fase2.sql']) await sql(readFileSync(new URL('../supabase/' + f, import.meta.url), 'utf8'));
+  for (const f of ['01_estrutura.sql', '03_fase2.sql', '04_permissoes.sql']) await sql(readFileSync(new URL('../supabase/' + f, import.meta.url), 'utf8'));
+  // daqui em diante o teste age como o SERVIDOR de verdade (service_role), não como superusuário
+  await sql('grant usage on schema auth to service_role; grant all on auth.users to service_role; set role service_role');
 
   // ---------- adaptador Postgres (mesma interface do adaptador Supabase)
   const val = (v: any) => (v !== null && typeof v === 'object' && !(v instanceof Date) ? JSON.stringify(v) : v);

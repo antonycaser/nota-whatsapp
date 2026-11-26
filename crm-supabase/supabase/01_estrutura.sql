@@ -190,6 +190,12 @@ alter table public.config        enable row level security;
 revoke all on public.perfis, public.clientes, public.servicos, public.profissionais,
   public.agendamentos, public.financeiro, public.mensagens, public.config from anon, authenticated;
 
+-- Só o servidor (service_role) acessa. Nos projetos novos do Supabase
+-- essa permissão não vem automática, então é dada aqui.
+grant usage on schema public to service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
+alter default privileges in schema public grant select, insert, update, delete on tables to service_role;
+
 -- ---------------------------------------------------------------------
 -- Serviços iniciais (só se a tabela estiver vazia)
 -- ---------------------------------------------------------------------
