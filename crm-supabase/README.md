@@ -30,9 +30,8 @@ Nova versão do CRM, rodando no **Supabase** (banco de dados e servidor) e no **
 ### 3. Criar o seu login de administradora
 1. Vá em **Authentication → Users → Add user → Create new user**.
 2. Coloque o **e-mail** e uma **senha**, marque **Auto Confirm User** e clique em **Create user**.
-3. Volte ao **SQL Editor** e cole o conteúdo de [`supabase/02_primeira_admin.sql`](supabase/02_primeira_admin.sql).
-4. Troque `COLOQUE-O-EMAIL-AQUI@gmail.com` pelo e-mail do passo 2 e clique em **Run**.
-5. Deve aparecer uma linha com **perfil = admin**.
+3. Volte ao **SQL Editor**, clique em **New query**, cole o conteúdo de [`supabase/02_primeira_admin.sql`](supabase/02_primeira_admin.sql) **sem mudar nada** e clique em **Run**.
+4. Deve aparecer uma tabelinha com o seu nome, **admin** e o seu e-mail.
 
 ### 4. Fechar o cadastro público (segurança)
 Em **Authentication → Sign In / Providers**, **desligue "Allow new users to sign up"**. Assim só você cria os logins da equipe.
