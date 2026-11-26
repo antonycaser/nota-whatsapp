@@ -12,10 +12,65 @@ var IMP_IGNORAR = ['make', 'maquiagem', 'makeup', 'maquiar', 'sobrancelha', 'sob
   'cliente', 'sinal', 'pago', 'paga', 'pix', 'r', 'e', 'de', 'da', 'do', 'das', 'dos', 'com', 'para', 'pra', 'no', 'na', 'x', 'teste',
   'formatura', 'casamento', 'festa', 'evento', 'aniversario', 'domicilio', 'hora', 'horario'];
 
-/** Palavra-chave no título → trecho do nome do serviço (do mais específico para o mais geral). */
-var IMP_CHAVES = [['henna', 'henna'], ['brow', 'lamination'], ['lamination', 'lamination'], ['cilio', 'cilios'],
-  ['escova', 'escova'], ['noiva', 'noiva'], ['madrinha', 'madrinha'], ['penteado', 'penteado'],
-  ['sobrancelha', 'sobrancelha'], ['design', 'sobrancelha'], ['maquiagem', 'maquiagem'], ['make', 'maquiagem']];
+/**
+ * Grupos de serviço reconhecidos no texto do evento. Uma cliente pode ter vários
+ * (ex.: "Make + penteado noiva" → Maquiagem de noiva + Penteado de noiva).
+ *  chaves: palavras que indicam o grupo;  base: palavra do nome do serviço "padrão";
+ *  prefer: [palavra no texto, trecho do nome do serviço] para escolher o serviço mais específico.
+ */
+var IMP_GRUPOS = [
+  { chaves: ['make', 'maquiagem', 'makeup', 'maquiar', 'noiva', 'madrinha'], base: 'maquiagem', padrao: 'social',
+    prefer: [['noiva', 'noiva'], ['madrinha', 'madrinha']] },
+  { chaves: ['penteado', 'cabelo', 'escova', 'babyliss', 'trança', 'tranca', 'coque'], base: 'penteado', padrao: 'social',
+    prefer: [['escova', 'escova'], ['noiva', 'noiva']] },
+  { chaves: ['sobrancelha', 'sobrancelhas', 'design', 'henna', 'brow', 'lamination'], base: 'sobrancelha', padrao: 'design',
+    prefer: [['henna', 'henna'], ['brow', 'lamination'], ['lamination', 'lamination']] },
+  { chaves: ['cilio', 'cilios', 'extensao', 'lash'], base: 'cilios', padrao: '', prefer: [] }
+];
+
+/** Escolhe os serviços citados no texto (nome exato primeiro, depois por grupo). */
+function imp_servicos_(nx, servicos) {
+  var tem = function (w) { return nx.indexOf(' ' + w) >= 0; };
+  var nomes = servicos.map(function (s) { return { s: s, n: norm_(s.nome) }; });
+  var escolhidos = [];
+  var add = function (s) { if (s && escolhidos.indexOf(s) < 0) escolhidos.push(s); };
+
+  // pacote cobre vários serviços de uma vez
+  if (tem('pacote') || tem('combo')) {
+    var pac = nomes.filter(function (x) { return x.n.indexOf('pacote') >= 0 || x.n.indexOf('combo') >= 0; })[0];
+    if (pac) return [pac.s];
+  }
+  // nome exato do serviço escrito no evento
+  nomes.forEach(function (x) { if (x.n && nx.indexOf(' ' + x.n + ' ') >= 0) add(x.s); });
+  var jaCobre = function (g) {
+    return escolhidos.some(function (s) {
+      var n = norm_(s.nome);
+      return n.indexOf(g.base) >= 0 || g.chaves.some(function (c) { return n.split(' ').indexOf(c) >= 0; });
+    });
+  };
+  // por grupo (maquiagem, penteado, sobrancelha, cílios)
+  var temMaqOuPent = tem('make') || tem('maquiagem') || tem('makeup') || tem('maquiar') || tem('penteado') || tem('cabelo') || tem('escova');
+  IMP_GRUPOS.forEach(function (g) {
+    var acionado = g.chaves.some(function (c) {
+      if ((c === 'noiva' || c === 'madrinha') && temMaqOuPent) return false; // "noiva" sozinha só vale se não falou de make/penteado
+      return tem(c);
+    });
+    if (!acionado || jaCobre(g)) return;
+    var achou = null;
+    for (var i = 0; i < g.prefer.length && !achou; i++) {
+      if (!tem(g.prefer[i][0])) continue;
+      var cand = nomes.filter(function (x) { return x.n.indexOf(g.prefer[i][1]) >= 0 && x.n.indexOf('pacote') < 0; });
+      achou = (cand.filter(function (x) { return x.n.indexOf(g.base) >= 0; })[0] || cand[0] || {}).s || null;
+    }
+    if (!achou) {
+      var base = nomes.filter(function (x) { return x.n.indexOf(g.base) >= 0 && x.n.indexOf('pacote') < 0 && x.n.indexOf('noiva') < 0 && x.n.indexOf('madrinha') < 0; });
+      var qualquer = nomes.filter(function (x) { return x.n.indexOf(g.base) >= 0 && x.n.indexOf('pacote') < 0; });
+      achou = ((g.padrao && base.filter(function (x) { return x.n.indexOf(g.padrao) >= 0; })[0]) || base[0] || qualquer[0] || {}).s || null;
+    }
+    add(achou);
+  });
+  return escolhidos;
+}
 
 function norm_(s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -91,17 +146,8 @@ function imp_sugerir_(titulo, desc, clientes, servicos) {
     if (cand.length && (cand[0].score >= 2 || soPrimeiro === 1)) cliente = cand[0].c;
   }
 
-  // 3) serviços: nome exato no texto; se não, palavra-chave
-  var serv = [];
-  servicos.forEach(function (s) { var n = norm_(s.nome); if (n && nx.indexOf(' ' + n + ' ') >= 0) serv.push(s); });
-  if (!serv.length) {
-    for (var i = 0; i < IMP_CHAVES.length; i++) {
-      if (nx.indexOf(' ' + IMP_CHAVES[i][0]) < 0) continue;
-      var trecho = IMP_CHAVES[i][1];
-      var s = servicos.filter(function (x) { return norm_(x.nome).indexOf(trecho) >= 0; })[0];
-      if (s) { serv.push(s); break; }
-    }
-  }
+  // 3) serviços (pode ser mais de um)
+  var serv = imp_servicos_(nx, servicos);
 
   // 4) valor escrito no evento (ex.: "R$ 150")
   var valor = null;

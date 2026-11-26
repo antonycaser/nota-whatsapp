@@ -274,6 +274,33 @@ t('sugere cliente, serviço e valor a partir dos eventos', () => {
   assert.strictEqual(by('Aula de inglês').recorrente, true);
   assert.strictEqual(by('Aula de inglês').provavel, false);
 });
+t('reconhece mais de um serviço no mesmo evento', () => {
+  const dia = local(em(5 * 24 * 60));
+  const nomes = ids => ids.map(id => db_get_('Servicos', id).nome).sort();
+  const ev = (t, h) => MOCK.addExterno(t, new Date(dia + 'T' + h), new Date(new Date(dia + 'T' + h).getTime() + 3600000), {});
+  const e1 = ev('Ana Souza make + penteado', '08:00');
+  const e2 = ev('Noiva Bia - make e penteado', '09:00');
+  const e3 = ev('Camila henna e design + cílios', '10:00');
+  const e4 = ev('Pacote make e penteado Lu', '11:00');
+  const e5 = ev('Noiva Patrícia', '12:00');
+  const e6 = ev('Escova e make Bruna', '13:00');
+  const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });
+  const sv = e => nomes(r.eventos.find(x => x.eventId === e.id).servicoIds);
+  const s1 = sv(e1); assert.strictEqual(s1.length, 2); assert(s1.includes('Penteado social') && s1.some(n => /^Maquiagem/.test(n)), s1);
+  assert.deepStrictEqual(sv(e2), ['Maquiagem de noiva', 'Penteado de noiva']);
+  assert.deepStrictEqual(sv(e3), ['Cílios fio a fio', 'Design com henna']);
+  assert.deepStrictEqual(sv(e4), ['Pacote Make + Penteado']);
+  assert.deepStrictEqual(sv(e5), ['Maquiagem de noiva']);
+  const s6 = sv(e6); assert(s6.includes('Escova modelada') && s6.some(n => /^Maquiagem/.test(n)) && s6.length === 2, s6);
+  // importa com 2 serviços: valor e duração somados vêm do evento/serviços
+  const res = API(token, 'agenda.importar', { itens: [{ eventId: e2.id, clienteId: bia.id, servicoIds: r.eventos.find(x => x.eventId === e2.id).servicoIds }] });
+  assert.strictEqual(res.importados, 1);
+  const a = db_all_('Agendamentos').find(x => x.eventId === e2.id);
+  assert.strictEqual(a.servicoNomes, 'Maquiagem de noiva + Penteado de noiva');
+  assert.strictEqual(a.valor, 650 + 450);
+  API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' });
+  [e1, e3, e4, e5, e6].forEach(e => e.deleteEvent());
+});
 t('importa sem duplicar o evento e cria a cliente nova', () => {
   const dia = local(em(3 * 24 * 60));
   const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });

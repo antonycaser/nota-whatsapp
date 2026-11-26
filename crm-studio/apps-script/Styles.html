@@ -463,7 +463,13 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .imp-top { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .imp-top input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
 .imp-top .tag { margin-top: 4px; }
-.imp-campos { display: grid; grid-template-columns: 1.4fr 1.4fr .7fr; gap: 8px; margin-top: 10px; }
+.imp-campos { display: grid; grid-template-columns: 1.2fr 1.6fr .7fr; gap: 8px; margin-top: 10px; align-items: start; }
+.imp-srvs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.imp-srvs select { flex: 1; min-width: 140px; }
+.chip-mini { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 10px; border-radius: 10px; background: var(--accent-soft);
+  font-size: 13px; font-weight: 600; color: var(--text); }
+.chip-mini button { border: 0; background: transparent; width: 26px; height: 26px; border-radius: 8px; cursor: pointer; font-size: 18px; line-height: 1; color: var(--muted); }
+.chip-mini button:hover { background: var(--surface); color: var(--bad); }
 .imp-novo { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .imp-novo.hidden { display: none; }
 @media (max-width: 900px) { .imp-campos, .imp-novo { grid-template-columns: 1fr; } }

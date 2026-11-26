@@ -1002,7 +1002,7 @@ function formAgendamento(pre, depois) {
     body: `<form id="fAg" autocomplete="off">
       <div class="section-title">Cliente</div>
       <div id="cliBox"></div>
-      <div class="section-title">Serviços</div>
+      <div class="section-title">Serviços <span style="text-transform:none;letter-spacing:0;font-weight:500">· toque em quantos ela vai fazer</span></div>
       ${cats.map(cat => `<div class="tiny muted" style="margin:6px 0">${esc(cat)}</div><div class="chips" style="margin-bottom:8px">
         ${servAtivos.filter(s => s.categoria === cat).map(s => `<button type="button" class="chip ${st.servicos.has(s.id) ? 'on' : ''}" data-srv="${s.id}">
           <span class="dot" style="background:${esc(s.cor)}"></span><span>${esc(s.nome)}<br><span class="chip-sub">${brl(s.preco)} · ${fDur(s.duracao)}</span></span></button>`).join('')}</div>`).join('')
@@ -1998,12 +1998,15 @@ async function importarGoogle() {
   const selecionados = () => $$('.imp-item', lista).filter(r => $('[data-sel]', r).checked);
   const contar = () => { const n = selecionados().length; btnOk.disabled = !n; btnOk.textContent = n ? `Importar ${n}` : 'Importar'; };
 
+  const chipsServ = ev => ev.sel.map(id => { const s = S.servicos.find(x => x.id === id); return s ? `<span class="chip-mini"><span class="dot" style="background:${esc(s.cor)}"></span>${esc(s.nome)}<button type="button" data-rm="${id}" aria-label="Tirar">×</button></span>` : ''; }).join('')
+    + `<select data-add><option value="">${ev.sel.length ? '+ outro serviço' : 'Escolha o serviço…'}</option>${servAtivos.filter(s => !ev.sel.includes(s.id)).map(s => `<option value="${s.id}">${esc(s.nome)} · ${brl(s.preco)}</option>`).join('')}</select>`;
+  const valorPadrao = ev => { const t = ev.sel.reduce((v, id) => v + num((S.servicos.find(x => x.id === id) || {}).preco), 0); return t ? 'Valor (' + brl(t) + ')' : 'Valor'; };
+  const redesenharServ = row => { const ev = eventos[Number(row.dataset.i)]; $('[data-srvs]', row).innerHTML = chipsServ(ev); $('[data-valor]', row).placeholder = valorPadrao(ev); };
   function linha(ev, i) {
     const passado = ev.fim.slice(0, 16) <= (hoje() + 'T' + pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()));
     const cliOpts = `<option value="__novo" ${ev.clienteId ? '' : 'selected'}>+ Nova cliente</option>` +
       clientesOrd.map(c => `<option value="${c.id}" ${c.id === ev.clienteId ? 'selected' : ''}>${esc(c.nome)}</option>`).join('');
-    const srvOpts = `<option value="">Serviço…</option>` +
-      servAtivos.map(s => `<option value="${s.id}" ${s.id === (ev.servicoIds || [])[0] ? 'selected' : ''}>${esc(s.nome)} · ${brl(s.preco)}</option>`).join('');
+    ev.sel = (ev.servicoIds || []).slice();
     return `<div class="imp-item ${ev.provavel ? '' : 'off'}" data-i="${i}">
       <label class="imp-top"><input type="checkbox" data-sel ${ev.provavel ? 'checked' : ''} ${ev.recorrente ? 'disabled' : ''}>
         <div class="grow"><b style="text-transform:capitalize">${DIAS_ABREV[new Date(ev.inicio.slice(0, 10) + 'T12:00').getDay()]} ${fDataCurta(ev.inicio)} · ${fHora(ev.inicio)}–${fHora(ev.fim)}</b>
@@ -2012,8 +2015,8 @@ async function importarGoogle() {
           ${passado && !ev.recorrente ? '<span class="tag">já passou · entra como concluído</span>' : ''}</div></label>
       <div class="imp-campos">
         <select data-cli>${cliOpts}</select>
-        <select data-srv>${srvOpts}</select>
-        <input data-valor inputmode="decimal" placeholder="Valor (do serviço)" value="${ev.valor != null ? esc(String(ev.valor).replace('.', ',')) : ''}">
+        <div class="imp-srvs" data-srvs>${chipsServ(ev)}</div>
+        <input data-valor inputmode="decimal" placeholder="${valorPadrao(ev)}" value="${ev.valor != null ? esc(String(ev.valor).replace('.', ',')) : ''}">
         <div class="imp-novo ${ev.clienteId ? 'hidden' : ''}">
           <input data-nnome placeholder="Nome da nova cliente" value="${esc(ev.nomeNovo || '')}">
           <input data-ntel type="tel" inputmode="tel" placeholder="WhatsApp (opcional)" value="${esc(foneFmt(ev.telefone || ''))}">
@@ -2039,11 +2042,14 @@ async function importarGoogle() {
     const row = e.target.closest('.imp-item'); if (!row) return;
     if (e.target.matches('[data-sel]')) { row.classList.toggle('off', !e.target.checked); contar(); }
     if (e.target.matches('[data-cli]')) $('.imp-novo', row).classList.toggle('hidden', e.target.value !== '__novo');
-    if (e.target.matches('[data-srv]') && !$('[data-valor]', row).value) {
-      const s = S.servicos.find(x => x.id === e.target.value); if (s) $('[data-valor]', row).placeholder = 'Valor (' + brl(s.preco) + ')';
+    if (e.target.matches('[data-add]') && e.target.value) {
+      eventos[Number(row.dataset.i)].sel.push(e.target.value);
+      redesenharServ(row);
     }
   });
   lista.addEventListener('click', e => {
+    const rm = e.target.closest('[data-rm]');
+    if (rm) { const row = rm.closest('.imp-item'); const ev = eventos[Number(row.dataset.i)]; ev.sel = ev.sel.filter(id => id !== rm.dataset.rm); redesenharServ(row); return; }
     const b = e.target.closest('[data-todos]'); if (!b) return;
     $$('.imp-item', lista).forEach(r => { const cb = $('[data-sel]', r); if (cb.disabled) return; cb.checked = b.dataset.todos === '1'; r.classList.toggle('off', !cb.checked); });
     contar();
@@ -2053,9 +2059,9 @@ async function importarGoogle() {
     const itens = [];
     for (const r of selecionados()) {
       const ev = eventos[Number(r.dataset.i)];
-      const cli = $('[data-cli]', r).value, srv = $('[data-srv]', r).value, valor = $('[data-valor]', r).value;
-      if (!srv) { r.scrollIntoView({ block: 'center' }); return toast('Escolha o serviço de “' + (ev.titulo || 'sem título') + '”.', 'err'); }
-      const it = { eventId: ev.eventId, servicoIds: [srv], valor: valor === '' ? null : num(valor) };
+      const cli = $('[data-cli]', r).value, valor = $('[data-valor]', r).value;
+      if (!ev.sel.length) { r.scrollIntoView({ block: 'center' }); return toast('Escolha o serviço de “' + (ev.titulo || 'sem título') + '”.', 'err'); }
+      const it = { eventId: ev.eventId, servicoIds: ev.sel.slice(), valor: valor === '' ? null : num(valor) };
       if (cli === '__novo') {
         const nome = $('[data-nnome]', r).value.trim();
         if (!nome) { r.scrollIntoView({ block: 'center' }); return toast('Digite o nome da cliente de “' + (ev.titulo || 'sem título') + '”.', 'err'); }
