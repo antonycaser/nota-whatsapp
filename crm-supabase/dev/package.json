@@ -1,0 +1,12 @@
+{
+  "name": "crm-supabase-dev",
+  "private": true,
+  "type": "module",
+  "description": "Testes do servidor do CRM (Node + Postgres local)",
+  "scripts": {
+    "teste": "pg_virtualenv -v 16 node --experimental-strip-types --no-warnings teste.ts"
+  },
+  "dependencies": {
+    "pg": "8.13.1"
+  }
+}
