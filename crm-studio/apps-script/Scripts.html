@@ -207,6 +207,33 @@ function confirmar(msg, { ok = 'Confirmar', perigo = false, titulo = 'Confirmar'
     obs.observe($('#modalRoot'), { childList: true });
   });
 }
+/** Pergunta com várias respostas. Devolve o valor do botão escolhido (ou null). */
+function escolher(msg, botoes, titulo) {
+  return new Promise(res => {
+    const m = modal({
+      title: titulo || 'Confirmar', body: `<div style="margin:0">${msg}</div>`,
+      foot: `<button class="btn" data-close>Voltar</button>` + botoes.map((b, i) => `<button class="btn ${b.cls || ''}" data-esc="${i}">${b.l}</button>`).join('')
+    });
+    let r = null;
+    $$('[data-esc]', m.el).forEach(b => b.addEventListener('click', () => { r = botoes[Number(b.dataset.esc)].v; m.close(); }));
+    const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { obs.disconnect(); res(r); } });
+    obs.observe($('#modalRoot'), { childList: true });
+  });
+}
+/** Ao cancelar/excluir: pergunta o que fazer com o dinheiro que já entrou no caixa. */
+async function perguntarFinanceiro(a, acao) {
+  const f = a.financeiro || { pago: 0 };
+  const texto = acao === 'excluir' ? 'Excluir definitivamente este agendamento? <span class="muted">(Para manter o histórico, prefira “Cancelar”.)</span>' : 'Cancelar este horário? Ele será removido do Google Agenda.';
+  if (!f.pago) {
+    const ok = await confirmar(texto, { ok: acao === 'excluir' ? 'Excluir' : 'Cancelar horário', perigo: true });
+    return ok ? 'remover' : null;
+  }
+  const detalhe = f.sinal && f.sinal < f.pago ? ` (sendo ${brl(f.sinal)} de sinal)` : f.sinal ? ' (sinal)' : '';
+  return escolher(`${texto}<div class="alert warn" style="margin:14px 0 0">${ico('wallet')}<div>Este atendimento tem <b>${brl(f.pago)}</b>${detalhe} lançado no financeiro. O que fazer com esse valor?</div></div>`, [
+    { v: 'manter', l: 'Manter no caixa' },
+    { v: 'remover', l: `Tirar ${brl(f.pago)} do caixa`, cls: 'danger' }
+  ], acao === 'excluir' ? 'Excluir agendamento' : 'Cancelar horário');
+}
 function formData(form) {
   const o = {};
   $$('input[name], select[name], textarea[name]', form).forEach(el => {
@@ -1091,6 +1118,8 @@ async function detalheAgendamento(id, depois) {
         ${ativo ? `<button class="btn sm" data-st="faltou">${ico('alert')}Faltou</button>` : ''}
         ${ativo ? `<button class="btn sm danger" data-st="cancelado">${ico('x')}Cancelar</button>` : ''}
         ${!ativo && a.status !== 'concluido' ? `<button class="btn sm" data-st="agendado">${ico('repeat')}Reativar</button>` : ''}
+        ${a.status === 'concluido' ? `<button class="btn sm" data-st="confirmado">${ico('repeat')}Desfazer finalização</button>
+          <button class="btn sm danger" data-st="cancelado">${ico('x')}Cancelar</button>` : ''}
       </div>
       <div class="actions-row" style="margin-top:8px">
         <button class="btn sm" data-editar>${ico('edit')}Editar / remarcar</button>
@@ -1102,8 +1131,15 @@ async function detalheAgendamento(id, depois) {
   const atualizar = () => { if (depois) depois(); else render(); };
   $$('[data-st]', m.el).forEach(b => b.addEventListener('click', () => busy(b, async () => {
     const stt = b.dataset.st;
-    if (stt === 'cancelado' && !(await confirmar('Cancelar este horário? Ele será removido do Google Agenda.', { ok: 'Cancelar horário', perigo: true }))) return;
-    try { await call('agenda.status', { id: a.id, status: stt }); m.close(); toast('Status: ' + STATUS[stt]); atualizar(); } catch (e) { erroToast(e); }
+    let financeiro = '';
+    if (stt === 'cancelado') { financeiro = await perguntarFinanceiro(a, 'cancelar'); if (!financeiro) return; }
+    if (a.status === 'concluido' && stt === 'confirmado' && !(await confirmar('Desfazer a finalização? O pagamento deste atendimento sai do financeiro (o sinal, se houver, continua).', { ok: 'Desfazer' }))) return;
+    try {
+      await call('agenda.status', { id: a.id, status: stt, financeiro });
+      m.close();
+      toast(stt === 'cancelado' && financeiro === 'remover' && a.financeiro && a.financeiro.pago ? 'Horário cancelado e valor retirado do caixa' : a.status === 'concluido' && stt === 'confirmado' ? 'Finalização desfeita' : 'Status: ' + STATUS[stt]);
+      atualizar();
+    } catch (e) { erroToast(e); }
   })));
   const fin = $('[data-finalizar]', m.el);
   if (fin) fin.addEventListener('click', () => { m.close(); finalizarAtendimento(a, atualizar); });
@@ -1112,8 +1148,14 @@ async function detalheAgendamento(id, depois) {
   if (wa) wa.addEventListener('click', () => { m.close(); enviarMensagem(cli, a); });
   $('[data-cli]', m.el).addEventListener('click', () => { m.close(); fichaCliente(a.clienteId); });
   $('[data-excluir]', m.el).addEventListener('click', async () => {
-    if (!(await confirmar('Excluir definitivamente este agendamento? (Para manter o histórico, prefira “Cancelar”.)', { ok: 'Excluir', perigo: true }))) return;
-    try { await call('agenda.excluir', { id: a.id }); m.close(); toast('Agendamento excluído'); atualizar(); } catch (e) { erroToast(e); }
+    const financeiro = await perguntarFinanceiro(a, 'excluir');
+    if (!financeiro) return;
+    try {
+      await call('agenda.excluir', { id: a.id, financeiro });
+      m.close();
+      toast(financeiro === 'remover' && a.financeiro && a.financeiro.pago ? 'Agendamento excluído e valor retirado do caixa' : 'Agendamento excluído');
+      atualizar();
+    } catch (e) { erroToast(e); }
   });
 }
 
@@ -1448,7 +1490,7 @@ PAGES.financeiro = async el => {
         ultimo = d;
         return cab + `<div class="m-item" data-edit="${l.id}">
           <div class="m-ico ${l.tipo === 'receita' ? 'up' : 'down'}">${ico(l.tipo === 'receita' ? 'up' : 'down')}</div>
-          <div class="grow"><div class="title">${esc(l.descricao || l.categoria)}</div><div class="sub">${esc(l.categoria)}${l.forma ? ' · ' + esc(l.forma) : ''}</div></div>
+          <div class="grow"><div class="title">${esc(l.descricao || l.categoria)}</div><div class="sub">${esc(l.categoria)}${l.forma ? ' · ' + esc(l.forma) : ''}</div>${l.agAviso ? `<span class="tag" style="margin-top:4px;color:var(--warn)">⚠️ ${esc(l.agAviso)}</span>` : ''}</div>
           <div class="m-right"><div class="num ${l.tipo === 'receita' ? 'pos' : 'neg'}" style="font-weight:700">${l.tipo === 'receita' ? '+' : '−'} ${brl(l.valor)}</div>
             ${l.status === 'pendente' ? `<button class="btn sm" data-pagar="${l.id}">${l.tipo === 'receita' ? 'Recebi' : 'Paguei'}</button>` : pill(st, stLabel(l, st))}</div></div>`;
       }).join('') + '</div>';
@@ -1457,7 +1499,7 @@ PAGES.financeiro = async el => {
     body.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Descrição</th><th>Forma</th><th>Status</th><th class="num">Valor</th><th></th></tr></thead><tbody>` + rows.map(l => {
       const st = stDe(l), d = dataDe(l);
       return `<tr><td class="nowrap">${fDataCurta(d)}</td>
-        <td class="desc"><div style="font-weight:600">${esc(l.descricao || l.categoria)}</div><div class="tiny muted">${esc(l.categoria)}${l.clienteNome ? ' · ' + esc(l.clienteNome) : ''}</div></td>
+        <td class="desc"><div style="font-weight:600">${esc(l.descricao || l.categoria)}</div><div class="tiny muted">${esc(l.categoria)}${l.clienteNome ? ' · ' + esc(l.clienteNome) : ''}</div>${l.agAviso ? `<span class="tag" style="margin-top:4px;color:var(--warn)">⚠️ ${esc(l.agAviso)}</span>` : ''}</td>
         <td>${esc(l.forma || '—')}</td>
         <td>${pill(st, stLabel(l, st))}</td>
         <td class="num ${l.tipo === 'receita' ? 'pos' : 'neg'}" style="font-weight:700">${l.tipo === 'receita' ? '+' : '−'} ${brl(l.valor)}</td>

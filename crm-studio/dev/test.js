@@ -148,6 +148,56 @@ t('finalizar lança receita descontando o sinal', () => {
   assert(ev.title.startsWith('💖')); assert.strictEqual(ev.color, '10');
 });
 
+console.log('\nCancelar/excluir mexe no financeiro');
+const somaAg = id => db_all_('Financeiro').filter(l => l.agendamentoId === id && l.status === 'pago').reduce((s, l) => s + l.valor, 0);
+const novoAg = (extra) => { const d = em(50 * 60 + Math.floor(Math.random() * 3000)); return API(token, 'agenda.salvar', Object.assign({ clienteId: ana.id, servicoIds: [servSob.id], data: local(d), hora: '19:00', forcar: true }, extra || {})); };
+t('excluir atendimento pago tira o valor do caixa', () => {
+  const a = novoAg(); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
+  assert.strictEqual(somaAg(a.id), 50);
+  assert.strictEqual(API(token, 'agenda.obter', { id: a.id }).financeiro.pago, 50);
+  API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' });
+  assert.strictEqual(somaAg(a.id), 0);
+});
+t('excluir mantendo o sinal no caixa', () => {
+  const a = novoAg({ sinal: 30 });
+  API(token, 'agenda.excluir', { id: a.id, financeiro: 'manter' });
+  assert.strictEqual(somaAg(a.id), 30);
+});
+t('cancelar tira o sinal e o pagamento do caixa', () => {
+  const a = novoAg({ sinal: 20 }); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
+  assert.strictEqual(somaAg(a.id), 50);
+  API(token, 'agenda.status', { id: a.id, status: 'cancelado', financeiro: 'remover' });
+  assert.strictEqual(somaAg(a.id), 0);
+});
+t('desfazer finalização tira só o pagamento (sinal fica)', () => {
+  const a = novoAg({ sinal: 20 }); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
+  API(token, 'agenda.status', { id: a.id, status: 'confirmado' });
+  assert.strictEqual(somaAg(a.id), 20);
+  assert.strictEqual(db_get_('Agendamentos', a.id).lancamentoId, '');
+});
+t('editar valor de atendimento finalizado atualiza o caixa', () => {
+  const a = novoAg(); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
+  const v = API(token, 'agenda.obter', { id: a.id });
+  API(token, 'agenda.salvar', { id: a.id, clienteId: v.clienteId, servicoIds: v.servicos.map(s => s.id), data: v.inicio.slice(0, 10), hora: v.inicio.slice(11, 16), valor: 80, desconto: 0, sinal: 0, status: 'concluido', forcar: true });
+  assert.strictEqual(somaAg(a.id), 80);
+  API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' });
+});
+t('tirar o sinal na edição apaga o lançamento do sinal', () => {
+  const a = novoAg({ sinal: 25 });
+  const v = API(token, 'agenda.obter', { id: a.id });
+  API(token, 'agenda.salvar', { id: a.id, clienteId: v.clienteId, servicoIds: v.servicos.map(s => s.id), data: v.inicio.slice(0, 10), hora: v.inicio.slice(11, 16), sinal: 0, forcar: true });
+  assert.strictEqual(somaAg(a.id), 0);
+});
+t('financeiro sinaliza valor de atendimento excluído antes da correção', () => {
+  const a = novoAg(); API(token, 'agenda.finalizar', { id: a.id, valor: 50, forma: 'Pix', pago: true });
+  const ev = MOCK.events[db_get_('Agendamentos', a.id).eventId]; if (ev) ev.deleteEvent();
+  db_delete_('Agendamentos', a.id); // simula o comportamento antigo
+  const d = db_all_('Financeiro').find(l => l.agendamentoId === a.id).data;
+  const r = API(token, 'fin.listar', { inicio: d, fim: d });
+  assert(r.lancamentos.some(l => l.agendamentoId === a.id && l.agAviso === 'atendimento excluído'));
+  db_all_('Financeiro').filter(l => l.agendamentoId === a.id).forEach(l => db_delete_('Financeiro', l.id));
+});
+
 console.log('\nFinanceiro e relatórios');
 t('despesa recorrente cria parcelas pendentes', () => {
   API(token, 'fin.salvar', { tipo: 'despesa', categoria: 'Aluguel', descricao: 'Aluguel sala', valor: '1.200,00', data: local(new Date()), status: 'pago', repetir: 2 });

@@ -68,7 +68,21 @@ function ag_listar_(p) {
 function ag_obter_(p) {
   var a = db_get_('Agendamentos', p.id);
   if (!a) throw erro_('Agendamento não encontrado.');
-  return ag_view_(a, ag_mapas_());
+  var v = ag_view_(a, ag_mapas_());
+  v.financeiro = fin_resumoAgendamento_(a.id);
+  return v;
+}
+
+/**
+ * O que fazer com o dinheiro já lançado quando um atendimento sai da agenda.
+ * financeiro: 'remover' (padrão) tira tudo do caixa; 'manter' deixa o que já foi pago
+ * (ex.: sinal não devolvido) e só apaga o que estava pendente.
+ */
+function ag_tratarFinanceiro_(agId, financeiro) {
+  var manter = financeiro === 'manter';
+  fin_doAgendamento_(agId).forEach(function (l) {
+    if (!manter || l.status !== 'pago') db_delete_('Financeiro', l.id);
+  });
 }
 
 /**
@@ -144,6 +158,23 @@ function ag_salvar_(p) {
   // Sinal / reserva → lançamento de receita
   if (dados.sinal > 0 && !(antigo && num_(antigo.sinal) === dados.sinal)) {
     fin_sinal_(a, p.formaSinal || 'Pix');
+  } else if (!dados.sinal && antigo && num_(antigo.sinal) > 0) {
+    // tirou o sinal na edição: apaga o lançamento do sinal
+    fin_doAgendamento_(a.id).forEach(function (l) { if (l.categoria === 'Sinal / Reserva') db_delete_('Financeiro', l.id); });
+  }
+  // Atendimento já finalizado e editado: mantém o caixa igual ao novo valor (ou tira, se deixou de ser concluído)
+  if (antigo && antigo.status === 'concluido') {
+    if (a.status === 'concluido') {
+      var lancServ = fin_doAgendamento_(a.id).filter(function (l) { return l.categoria === 'Serviços'; })[0];
+      var novo = fin_doAtendimento_(a, a.formaPagamento || (lancServ && lancServ.forma) || 'Pix', !lancServ || lancServ.status === 'pago');
+      a = db_update_('Agendamentos', a.id, { lancamentoId: novo ? novo.id : '' });
+    } else {
+      if (a.status === 'cancelado') ag_tratarFinanceiro_(a.id, p.financeiro);
+      else fin_doAgendamento_(a.id).forEach(function (l) { if (l.categoria === 'Serviços') db_delete_('Financeiro', l.id); });
+      a = db_update_('Agendamentos', a.id, { lancamentoId: '', formaPagamento: '' });
+    }
+  } else if (antigo && a.status === 'cancelado' && antigo.status !== 'cancelado') {
+    ag_tratarFinanceiro_(a.id, p.financeiro);
   }
 
   a = ag_sync_(a);
@@ -169,7 +200,17 @@ function ag_status_(p) {
   if (validos.indexOf(p.status) < 0) throw erro_('Status inválido.');
   var a = db_get_('Agendamentos', p.id);
   if (!a) throw erro_('Agendamento não encontrado.');
-  a = db_update_('Agendamentos', a.id, { status: p.status });
+  var patch = { status: p.status };
+  if (p.status === 'cancelado') {
+    // cancelou: tira o dinheiro do caixa (ou mantém o sinal, se a dona escolher)
+    ag_tratarFinanceiro_(a.id, p.financeiro);
+    patch.lancamentoId = ''; patch.formaPagamento = '';
+  } else if (a.status === 'concluido' && p.status !== 'concluido') {
+    // desfez a finalização: tira só o pagamento do atendimento (o sinal continua)
+    fin_doAgendamento_(a.id).forEach(function (l) { if (l.categoria === 'Serviços') db_delete_('Financeiro', l.id); });
+    patch.lancamentoId = ''; patch.formaPagamento = '';
+  }
+  a = db_update_('Agendamentos', a.id, patch);
   a = ag_sync_(a);
   return ag_view_(a, ag_mapas_());
 }
@@ -192,9 +233,7 @@ function ag_excluir_(p) {
   var a = db_get_('Agendamentos', p.id);
   if (!a) return true;
   if (a.eventId) { try { var ev = cal_().getEventById(a.eventId); if (ev) ev.deleteEvent(); } catch (e) {} }
-  db_all_('Financeiro').forEach(function (l) {
-    if (l.agendamentoId === a.id && l.status !== 'pago') db_delete_('Financeiro', l.id);
-  });
+  ag_tratarFinanceiro_(a.id, p.financeiro);
   db_delete_('Agendamentos', a.id);
   return true;
 }

@@ -3,17 +3,37 @@
  * tipo: receita | despesa      status: pago | pendente
  */
 
+/** Lançamentos ligados a um atendimento. */
+function fin_doAgendamento_(agId) {
+  return db_all_('Financeiro').filter(function (l) { return l.agendamentoId === agId; });
+}
+
+/** Resumo do dinheiro de um atendimento (para a tela perguntar o que fazer ao cancelar/excluir). */
+function fin_resumoAgendamento_(agId) {
+  var itens = fin_doAgendamento_(agId);
+  return {
+    pago: round2_(itens.filter(function (l) { return l.status === 'pago'; }).reduce(function (s, l) { return s + num_(l.valor); }, 0)),
+    pendente: round2_(itens.filter(function (l) { return l.status !== 'pago'; }).reduce(function (s, l) { return s + num_(l.valor); }, 0)),
+    sinal: round2_(itens.filter(function (l) { return l.categoria === 'Sinal / Reserva' && l.status === 'pago'; }).reduce(function (s, l) { return s + num_(l.valor); }, 0)),
+    itens: itens.map(function (l) { return { categoria: l.categoria, valor: num_(l.valor), status: l.status }; })
+  };
+}
+
 function fin_listar_(p) {
   var ini = String(p.inicio || hoje_().slice(0, 8) + '01').slice(0, 10);
   var fim = String(p.fim || addMeses_(ini, 1)).slice(0, 10);
   var clientes = {};
   db_all_('Clientes').forEach(function (c) { clientes[c.id] = c.nome; });
+  var ags = {};
+  db_all_('Agendamentos').forEach(function (a) { ags[a.id] = a.status; });
   var lista = db_all_('Financeiro').filter(function (l) {
     var d = l.status === 'pendente' && l.vencimento ? l.vencimento : l.data;
     return d >= ini && d <= fim;
   }).map(function (l) {
     l.clienteNome = clientes[l.clienteId] || '';
     l.atrasado = l.status === 'pendente' && (l.vencimento || l.data) < hoje_();
+    // dinheiro de atendimento que não existe mais (excluído antes desta correção) ou foi cancelado
+    if (l.agendamentoId) l.agAviso = !ags[l.agendamentoId] ? 'atendimento excluído' : ags[l.agendamentoId] === 'cancelado' ? 'atendimento cancelado' : '';
     return l;
   }).sort(function (a, b) { return a.data < b.data ? 1 : -1; });
 
