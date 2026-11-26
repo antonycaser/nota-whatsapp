@@ -456,6 +456,17 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .mes-dots em { width: 6px; height: 6px; border-radius: 50%; }
 .mes-dots em.ext { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .mes-dots small { font-size: 9px; font-weight: 700; color: var(--muted); line-height: 1; margin-left: 1px; }
+.imp-resumo { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; }
+.imp-item { border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface); }
+.imp-item.off { background: var(--surface-2); }
+.imp-item.off .imp-campos { display: none; }
+.imp-top { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.imp-top input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.imp-top .tag { margin-top: 4px; }
+.imp-campos { display: grid; grid-template-columns: 1.4fr 1.4fr .7fr; gap: 8px; margin-top: 10px; }
+.imp-novo { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.imp-novo.hidden { display: none; }
+@media (max-width: 900px) { .imp-campos, .imp-novo { grid-template-columns: 1fr; } }
 .slot-free { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: calc(100% - 56px); margin: 0 0 10px 56px; padding: 11px 14px;
   border: 1.5px dashed var(--border); border-radius: 14px; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
 .slot-free b { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; }

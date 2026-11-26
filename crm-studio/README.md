@@ -37,7 +37,7 @@ Na pasta [`apps-script/`](apps-script/) estão todos os arquivos. No editor do A
 |---|---|
 | `appsscript.json` | já existe: substitua o conteúdo |
 | `Code.gs` | já existe: substitua o conteúdo |
-| `Database.gs`, `Auth.gs`, `Config.gs`, `Cadastros.gs`, `Agenda.gs`, `Financeiro.gs`, `Relatorios.gs`, `WhatsApp.gs` | **+ → Script** (digite o nome **sem** `.gs`) |
+| `Database.gs`, `Auth.gs`, `Config.gs`, `Cadastros.gs`, `Agenda.gs`, `Importar.gs`, `Financeiro.gs`, `Relatorios.gs`, `WhatsApp.gs` | **+ → Script** (digite o nome **sem** `.gs`) |
 | `Index.html`, `Brand.html`, `Styles.html`, `Scripts.html` | **+ → HTML** (digite `Index`, `Brand`, `Styles` e `Scripts`) |
 
 > Os nomes dos arquivos HTML precisam ser exatamente `Index`, `Brand`, `Styles` e `Scripts`.
@@ -125,6 +125,9 @@ No editor, rode **`reinstalarGatilhos`**. Confira também se **"Ligar mensagens 
 **Um horário não apareceu no Google Agenda.**
 Abra o agendamento e veja o status da sincronização. Em **Configurações → Reenviar horários futuros**, tudo é reenviado.
 
+**Já tenho horários marcados no Google Agenda. Preciso digitar tudo de novo?**
+Não. Vá em **Configurações → Google Agenda → Importar eventos do Google Agenda** (no computador, também há o botão **Importar do Google** na agenda). Escolha o período e toque em **Buscar eventos**. O CRM sugere a cliente (pelo nome ou telefone escrito no evento), o serviço e o valor. Você confere e toca em **Importar**. Os eventos não são duplicados: passam a ser controlados pelo CRM. Eventos que já passaram entram como concluídos (sem lançar no financeiro). Compromissos pessoais ficam desmarcados.
+
 **A cliente cancelou. O que acontece com o sinal?**
 Por padrão, o **sinal não é devolvido**: ao cancelar ou excluir o horário, o sinal fica no caixa (aparece como *"Sinal retido (cancelou)"*) e só o restante sai do financeiro. Se em algum caso você devolver, toque em **"Devolvi o sinal"**. Para mudar essa regra, use **Configurações → Agenda e funcionamento**.
 
@@ -150,6 +153,7 @@ crm-studio/
 │   ├── Config.gs         configurações e modelos de mensagem
 │   ├── Cadastros.gs      clientes, serviços, equipe
 │   ├── Agenda.gs         agendamentos + Google Agenda
+│   ├── Importar.gs       importa eventos que já estavam no Google Agenda
 │   ├── Financeiro.gs     lançamentos
 │   ├── Relatorios.gs     painel e relatórios
 │   ├── WhatsApp.gs       envio, automações, webhook (doPost)

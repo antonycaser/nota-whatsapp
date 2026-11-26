@@ -148,6 +148,7 @@
     setTime(s, e) { this.start = s; this.end = e; return this; } setDescription(d) { this.desc = d; return this; }
     setLocation(l) { this.loc = l; return this; } setColor(c) { this.color = c; return this; }
     getStartTime() { return this.start; } getEndTime() { return this.end; } isAllDayEvent() { return this.allDay; }
+    getDescription() { return this.desc || ''; } isRecurringEvent() { return !!this.recorrente; }
     removeAllReminders() {} addPopupReminder() {}
     deleteEvent() { delete MOCK.events[this.id]; }
   }
@@ -163,7 +164,8 @@
   const cal = makeCal('dona@studio.com', 'Agenda principal', { primaria: true });
   const inscritas = [cal, makeCal('pt.brazilian#holiday@group.v.calendar.google.com', 'Feriados no Brasil', { minha: false, soLeitura: true })];
   MOCK.compartilhadas = {}; // agendas de outras contas que foram compartilhadas (id -> opções)
-  MOCK.addExterno = (t, s, e) => { const ev = cal.createEvent(t, s, e); return ev; };
+  MOCK.addExterno = (t, s, e, o) => { const ev = MOCK.calAtual().createEvent(t, s, e, o); if (o && o.recorrente) ev.recorrente = true; return ev; };
+  MOCK.calAtual = () => cal;
   MOCK.calendario = id => inscritas.find(c => c.getId() === id) || null;
   G.CalendarApp = {
     getDefaultCalendar: () => cal,

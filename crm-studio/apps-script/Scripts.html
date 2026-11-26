@@ -713,6 +713,7 @@ PAGES.agenda = async el => {
   el.innerHTML = `
     <div class="toolbar">
       ${isMobile() ? `<button class="btn sm" id="bModoLista">${ico('left')}Lista do dia</button>` : ''}
+      ${isAdmin() && S.cfg.calendarAtivo ? `<button class="btn sm" id="bImportarAg">${ico('download')}Importar do Google</button>` : ''}
       ${equipeAtiva.length ? `<select id="fProf" style="width:auto;min-width:180px"><option value="">Toda a equipe</option>${opts(equipeAtiva.map(p => ({ v: p.id, l: p.nome })), S.filtroProf)}</select>
       <label class="switch" style="margin:0"><input type="checkbox" id="fCorProf" ${S.corPorProf ? 'checked' : ''}><span class="tiny">Cores por profissional</span></label>` : ''}
       <div class="spacer"></div>
@@ -772,6 +773,8 @@ PAGES.agenda = async el => {
   });
   S.cal = cal;
   cal.render();
+  const bImp = $('#bImportarAg');
+  if (bImp) bImp.addEventListener('click', () => importarGoogle());
   const bLista = $('#bModoLista');
   if (bLista) bLista.addEventListener('click', () => { S.agendaModo = 'lista'; render(); });
   const fProf = $('#fProf');
@@ -1863,7 +1866,8 @@ PAGES.config = async el => {
         </div>
         <label class="switch"><input type="checkbox" name="mostrarEventosGoogle" ${c.mostrarEventosGoogle ? 'checked' : ''}><span>Mostrar meus outros compromissos na agenda do CRM</span></label>
         <label class="field"><span>Alerta no celular (minutos antes)</span><input name="lembreteAgendaMin" type="number" min="0" value="${esc(c.lembreteAgendaMin)}"></label>
-        <div class="actions-row"><button type="button" class="btn primary" data-salvar="fCal">Salvar</button><button type="button" class="btn" id="bResync">${ico('refresh')}Reenviar horários futuros</button></div></form></div></div>
+        <div class="actions-row"><button type="button" class="btn primary" data-salvar="fCal">Salvar</button><button type="button" class="btn" id="bResync">${ico('refresh')}Reenviar horários futuros</button></div>
+        <div class="actions-row" style="margin-top:10px"><button type="button" class="btn" id="bImportar">${ico('download')}Importar eventos do Google Agenda</button></div></form></div></div>
 
       <div class="card span-6"><div class="card-head"><h3>Agenda e funcionamento</h3></div><div class="card-body"><form id="fHor">
         <div class="grid-2"><label class="field"><span>Abre às</span><input type="time" name="horaAbertura" value="${esc(c.horaAbertura)}"></label>
@@ -1921,6 +1925,7 @@ PAGES.config = async el => {
       else toast('Configurações salvas ✨');
     } catch (err) { erroToast(err); }
   })));
+  $('#bImportar').addEventListener('click', () => importarGoogle());
   $('#bResync').addEventListener('click', e => busy(e.currentTarget, async () => {
     try { const r = await call('agenda.ressincronizar'); toast(`${r.sincronizados} horário(s) enviados ao Google Agenda${r.erros ? ' · ' + r.erros + ' erro(s)' : ''}`); } catch (err) { erroToast(err); }
   }));
@@ -1950,6 +1955,112 @@ function formUsuario(u) {
     if (!(await confirmar('Excluir este usuário?', { ok: 'Excluir', perigo: true }))) return;
     try { await call('usuarios.excluir', { id: u.id }); m.close(); toast('Usuário excluído'); render(); } catch (err) { erroToast(err); }
   });
+}
+
+
+/* ------------------------- Importar do Google Agenda ------------------------- */
+async function importarGoogle() {
+  const hj = hoje();
+  const m = modal({
+    title: 'Importar do Google Agenda', wide: true,
+    body: `<div class="alert info">${ico('calendar')}<div>Traz para o CRM os horários que já estão no seu Google Agenda. <b>Nada é duplicado</b>: o mesmo evento passa a ser controlado pelo CRM (lembretes, financeiro, histórico da cliente).</div></div>
+      <div class="grid-3" style="align-items:end">
+        <label class="field"><span>De</span><input type="date" id="impIni" value="${addDias(hj, -30)}"></label>
+        <label class="field"><span>Até</span><input type="date" id="impFim" value="${addDias(hj, 180)}"></label>
+        <div class="field"><button class="btn primary" id="impBuscar">${ico('search')}Buscar eventos</button></div>
+      </div>
+      <div id="impLista"></div>`,
+    foot: `<label class="switch left" style="margin:0"><input type="checkbox" id="impRenomear" checked><span class="tiny">Padronizar o título no Google Agenda</span></label>
+      <button class="btn" data-close>Fechar</button><button class="btn primary" id="impOk" disabled>Importar</button>`
+  });
+  const lista = $('#impLista', m.el), btnOk = $('#impOk', m.el);
+  let eventos = [];
+  const clientesOrd = S.clientes.slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+  const servAtivos = S.servicos.filter(s => s.ativo !== 'nao');
+  const selecionados = () => $$('.imp-item', lista).filter(r => $('[data-sel]', r).checked);
+  const contar = () => { const n = selecionados().length; btnOk.disabled = !n; btnOk.textContent = n ? `Importar ${n}` : 'Importar'; };
+
+  function linha(ev, i) {
+    const passado = ev.fim.slice(0, 16) <= (hoje() + 'T' + pad(new Date().getHours()) + ':' + pad(new Date().getMinutes()));
+    const cliOpts = `<option value="__novo" ${ev.clienteId ? '' : 'selected'}>+ Nova cliente</option>` +
+      clientesOrd.map(c => `<option value="${c.id}" ${c.id === ev.clienteId ? 'selected' : ''}>${esc(c.nome)}</option>`).join('');
+    const srvOpts = `<option value="">Serviço…</option>` +
+      servAtivos.map(s => `<option value="${s.id}" ${s.id === (ev.servicoIds || [])[0] ? 'selected' : ''}>${esc(s.nome)} · ${brl(s.preco)}</option>`).join('');
+    return `<div class="imp-item ${ev.provavel ? '' : 'off'}" data-i="${i}">
+      <label class="imp-top"><input type="checkbox" data-sel ${ev.provavel ? 'checked' : ''} ${ev.recorrente ? 'disabled' : ''}>
+        <div class="grow"><b style="text-transform:capitalize">${DIAS_ABREV[new Date(ev.inicio.slice(0, 10) + 'T12:00').getDay()]} ${fDataCurta(ev.inicio)} · ${fHora(ev.inicio)}–${fHora(ev.fim)}</b>
+          <div class="muted" style="font-size:13px">${esc(ev.titulo || '(sem título)')}</div>
+          ${ev.recorrente ? '<span class="tag">evento que se repete — importe pelo CRM</span>' : !ev.provavel ? '<span class="tag">parece compromisso pessoal</span>' : ''}
+          ${passado && !ev.recorrente ? '<span class="tag">já passou · entra como concluído</span>' : ''}</div></label>
+      <div class="imp-campos">
+        <select data-cli>${cliOpts}</select>
+        <select data-srv>${srvOpts}</select>
+        <input data-valor inputmode="decimal" placeholder="Valor (do serviço)" value="${ev.valor != null ? esc(String(ev.valor).replace('.', ',')) : ''}">
+        <div class="imp-novo ${ev.clienteId ? 'hidden' : ''}">
+          <input data-nnome placeholder="Nome da nova cliente" value="${esc(ev.nomeNovo || '')}">
+          <input data-ntel type="tel" inputmode="tel" placeholder="WhatsApp (opcional)" value="${esc(foneFmt(ev.telefone || ''))}">
+        </div>
+      </div></div>`;
+  }
+
+  $('#impBuscar', m.el).addEventListener('click', e => busy(e.currentTarget, async () => {
+    try {
+      const r = await call('agenda.importarPrevia', { inicio: $('#impIni', m.el).value, fim: $('#impFim', m.el).value });
+      eventos = r.eventos;
+      if (!eventos.length) { lista.innerHTML = `<div class="empty"><div class="big">🗓️</div>Nenhum evento novo nesse período na agenda “${esc(r.agenda)}”.</div>`; contar(); return; }
+      const prov = eventos.filter(x => x.provavel).length;
+      lista.innerHTML = `<div class="imp-resumo"><span><b>${eventos.length}</b> evento(s) em “${esc(r.agenda)}” · <b>${prov}</b> parecem atendimentos</span>
+          <span><button class="btn sm ghost" data-todos="1">Marcar todos</button><button class="btn sm ghost" data-todos="0">Desmarcar</button></span></div>
+        <p class="muted tiny" style="margin:0 0 10px">Confira a cliente e o serviço de cada um. Os que não estiverem marcados ficam como compromisso pessoal.</p>`
+        + eventos.map(linha).join('') + (r.total > eventos.length ? `<p class="muted tiny">Mostrando os primeiros ${eventos.length} de ${r.total}. Diminua o período para ver o resto.</p>` : '');
+      contar();
+    } catch (err) { erroToast(err); }
+  }));
+
+  lista.addEventListener('change', e => {
+    const row = e.target.closest('.imp-item'); if (!row) return;
+    if (e.target.matches('[data-sel]')) { row.classList.toggle('off', !e.target.checked); contar(); }
+    if (e.target.matches('[data-cli]')) $('.imp-novo', row).classList.toggle('hidden', e.target.value !== '__novo');
+    if (e.target.matches('[data-srv]') && !$('[data-valor]', row).value) {
+      const s = S.servicos.find(x => x.id === e.target.value); if (s) $('[data-valor]', row).placeholder = 'Valor (' + brl(s.preco) + ')';
+    }
+  });
+  lista.addEventListener('click', e => {
+    const b = e.target.closest('[data-todos]'); if (!b) return;
+    $$('.imp-item', lista).forEach(r => { const cb = $('[data-sel]', r); if (cb.disabled) return; cb.checked = b.dataset.todos === '1'; r.classList.toggle('off', !cb.checked); });
+    contar();
+  });
+
+  btnOk.addEventListener('click', () => busy(btnOk, async () => {
+    const itens = [];
+    for (const r of selecionados()) {
+      const ev = eventos[Number(r.dataset.i)];
+      const cli = $('[data-cli]', r).value, srv = $('[data-srv]', r).value, valor = $('[data-valor]', r).value;
+      if (!srv) { r.scrollIntoView({ block: 'center' }); return toast('Escolha o serviço de “' + (ev.titulo || 'sem título') + '”.', 'err'); }
+      const it = { eventId: ev.eventId, servicoIds: [srv], valor: valor === '' ? null : num(valor) };
+      if (cli === '__novo') {
+        const nome = $('[data-nnome]', r).value.trim();
+        if (!nome) { r.scrollIntoView({ block: 'center' }); return toast('Digite o nome da cliente de “' + (ev.titulo || 'sem título') + '”.', 'err'); }
+        it.novaCliente = { nome, telefone: $('[data-ntel]', r).value };
+      } else it.clienteId = cli;
+      itens.push(it);
+    }
+    const renomear = $('#impRenomear', m.el).checked;
+    const tot = { importados: 0, clientesNovas: 0, erros: [] };
+    for (let i = 0; i < itens.length; i += 20) {
+      btnOk.innerHTML = `<span class="spinner sm"></span> ${Math.min(i + 20, itens.length)}/${itens.length}`;
+      try {
+        const r = await call('agenda.importar', { itens: itens.slice(i, i + 20), renomear });
+        tot.importados += r.importados; tot.clientesNovas += r.clientesNovas; tot.erros = tot.erros.concat(r.erros);
+      } catch (err) { erroToast(err); break; }
+    }
+    await recarregarCadastros();
+    RC.limpar();
+    m.close();
+    toast(`${tot.importados} atendimento(s) importado(s)${tot.clientesNovas ? ` · ${tot.clientesNovas} cliente(s) nova(s)` : ''} ✅`);
+    if (tot.erros.length) setTimeout(() => toast(`${tot.erros.length} não foram importados: ${tot.erros.slice(0, 3).map(x => x.erro).join('; ')}`, 'err'), 600);
+    render();
+  }));
 }
 
 /* ------------------------- Início ------------------------- */

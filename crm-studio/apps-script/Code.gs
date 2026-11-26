@@ -101,6 +101,8 @@ function rotas_() {
     'agenda.finalizar':   { fn: ag_finalizar_, escrita: true },
     'agenda.excluir':     { fn: ag_excluir_, escrita: true },
     'agenda.ressincronizar': { fn: ag_ressincronizar_, escrita: true, admin: true },
+    'agenda.importarPrevia': { fn: imp_previa_, admin: true },
+    'agenda.importar':    { fn: imp_importar_, escrita: true, admin: true },
 
     // Financeiro
     'fin.listar':         { fn: fin_listar_, admin: true },

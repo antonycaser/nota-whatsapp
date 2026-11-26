@@ -250,6 +250,65 @@ t('relatório do período com DRE, serviços e comissões', () => {
   assert.strictEqual(r.resumo.lucro, r.resumo.receitas - r.resumo.despesas);
 });
 
+console.log('\nImportar do Google Agenda');
+t('sugere cliente, serviço e valor a partir dos eventos', () => {
+  const base = em(3 * 24 * 60); const dia = local(base);
+  const ev = (titulo, h, desc, extra) => MOCK.addExterno(titulo, new Date(dia + 'T' + h), new Date(new Date(dia + 'T' + h).getTime() + 3600000), Object.assign({ description: desc || '' }, extra || {}));
+  ev('Ana Souza - Penteado social', '09:00');
+  ev('Make Maria Clara 11 98888-7777', '10:30');
+  ev('Beatriz escova R$ 120', '13:00');
+  ev('Dentista', '15:00');
+  ev('Henna', '16:00', 'Cliente: Juliana Prado (11) 97777-6666');
+  ev('Aula de inglês', '18:00', '', { recorrente: true });
+  const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });
+  const by = t => r.eventos.find(x => x.titulo === t);
+  assert.strictEqual(by('Ana Souza - Penteado social').clienteId, ana.id);
+  assert.deepStrictEqual(by('Ana Souza - Penteado social').servicoIds, [servPent.id]);
+  const maria = by('Make Maria Clara 11 98888-7777');
+  assert.strictEqual(maria.clienteId, ''); assert.strictEqual(maria.nomeNovo, 'Maria Clara'); assert.strictEqual(maria.telefone, '5511988887777');
+  assert(maria.servicoIds.length === 1 && maria.provavel);
+  const bea = by('Beatriz escova R$ 120');
+  assert.strictEqual(bea.clienteId, bia.id); assert.strictEqual(bea.valor, 120);
+  assert.strictEqual(by('Dentista').provavel, false);
+  assert.strictEqual(by('Henna').telefone, '5511977776666');
+  assert.strictEqual(by('Aula de inglês').recorrente, true);
+  assert.strictEqual(by('Aula de inglês').provavel, false);
+});
+t('importa sem duplicar o evento e cria a cliente nova', () => {
+  const dia = local(em(3 * 24 * 60));
+  const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });
+  const evsAntes = Object.keys(MOCK.events).length;
+  const itens = r.eventos.filter(x => x.provavel).map(x => x.clienteId
+    ? { eventId: x.eventId, clienteId: x.clienteId, servicoIds: x.servicoIds.length ? x.servicoIds : [servSob.id], valor: x.valor }
+    : { eventId: x.eventId, novaCliente: { nome: x.nomeNovo || 'Juliana Prado', telefone: x.telefone }, servicoIds: x.servicoIds.length ? x.servicoIds : [servSob.id], valor: x.valor });
+  const res = API(token, 'agenda.importar', { itens, renomear: true });
+  assert.strictEqual(res.erros.length, 0, JSON.stringify(res.erros));
+  assert.strictEqual(res.importados, 4);
+  assert.strictEqual(res.clientesNovas, 2);
+  assert.strictEqual(Object.keys(MOCK.events).length, evsAntes, 'nenhum evento novo criado');
+  const ags = db_all_('Agendamentos').filter(a => itens.some(i => i.eventId === a.eventId));
+  assert.strictEqual(ags.length, 4);
+  const bea = ags.find(a => a.clienteId === bia.id);
+  assert.strictEqual(bea.valor, 120);
+  assert(bea.observacoes.includes('Beatriz escova R$ 120'), 'título original guardado nas observações');
+  const ev = MOCK.events[bea.eventId];
+  assert(ev.title.includes('Beatriz Lima') && ev.title.includes('Escova'), 'título padronizado: ' + ev.title);
+  assert(ev.desc.includes('Importado do Google Agenda'), 'descrição original preservada');
+  const de_novo = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });
+  assert.strictEqual(de_novo.eventos.filter(x => x.provavel).length, 0, 'não aparece de novo para importar');
+  assert(db_all_('Clientes').some(c => c.nome === 'Maria Clara' && c.telefone === '5511988887777'));
+  // limpa para não afetar os testes seguintes
+  ags.forEach(a => API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' }));
+});
+t('evento que se repete não é importado', () => {
+  const dia = local(em(3 * 24 * 60));
+  const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });
+  const rec = r.eventos.find(x => x.recorrente);
+  const res = API(token, 'agenda.importar', { itens: [{ eventId: rec.eventId, clienteId: ana.id, servicoIds: [servSob.id] }] });
+  assert.strictEqual(res.importados, 0); assert(/repete/.test(res.erros[0].erro));
+  Object.values(MOCK.events).filter(e => e.title === 'Aula de inglês' || e.title === 'Dentista').forEach(e => e.deleteEvent());
+});
+
 console.log('\nWhatsApp');
 t('configura Z-API sem expor token', () => {
   API(token, 'wa.salvarConfig', { segredos: { provedor: 'zapi', zapiInstancia: 'INST1', zapiToken: 'TOKENSECRETO1234', zapiClientToken: 'CT99' },
