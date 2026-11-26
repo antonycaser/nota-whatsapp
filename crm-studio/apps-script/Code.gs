@@ -103,6 +103,7 @@ function rotas_() {
     'agenda.ressincronizar': { fn: ag_ressincronizar_, escrita: true, admin: true },
     'agenda.importarPrevia': { fn: imp_previa_, admin: true },
     'agenda.importar':    { fn: imp_importar_, escrita: true, admin: true },
+    'agenda.desfazerImportacao': { fn: imp_desfazer_, escrita: true, admin: true },
 
     // Financeiro
     'fin.listar':         { fn: fin_listar_, admin: true },

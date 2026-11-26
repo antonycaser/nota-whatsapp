@@ -128,6 +128,9 @@ Abra o agendamento e veja o status da sincronização. Em **Configurações → 
 **Já tenho horários marcados no Google Agenda. Preciso digitar tudo de novo?**
 Não. Vá em **Configurações → Google Agenda → Importar eventos do Google Agenda** (no computador, também há o botão **Importar do Google** na agenda). Escolha o período e toque em **Buscar eventos**. O CRM sugere a cliente (pelo nome ou telefone escrito no evento), o serviço e o valor. Você confere e toca em **Importar**. Os eventos não são duplicados: passam a ser controlados pelo CRM. Eventos que já passaram entram como concluídos (sem lançar no financeiro). Compromissos pessoais ficam desmarcados.
 
+**A importação pode bagunçar minha agenda?**
+Ela só mexe nos eventos que você marcar, e só no título, na descrição e na cor. Data, horário, endereço e convidados ficam iguais, e nada é apagado ou duplicado. O texto original fica guardado. No atendimento importado, o botão **"Desfazer importação"** devolve o evento ao Google exatamente como era. Por segurança, antes da primeira importação faça um backup: no Google Agenda (computador), vá em **⚙️ Configurações → Importar e exportar → Exportar**. Na primeira vez, teste com um período curto (1 semana).
+
 **A cliente cancelou. O que acontece com o sinal?**
 Por padrão, o **sinal não é devolvido**: ao cancelar ou excluir o horário, o sinal fica no caixa (aparece como *"Sinal retido (cancelou)"*) e só o restante sai do financeiro. Se em algum caso você devolver, toque em **"Devolvi o sinal"**. Para mudar essa regra, use **Configurações → Agenda e funcionamento**.
 

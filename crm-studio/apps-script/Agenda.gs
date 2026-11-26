@@ -21,7 +21,7 @@ function ag_view_(a, mapas) {
     valor: num_(a.valor), desconto: num_(a.desconto), sinal: num_(a.sinal),
     local: a.local, observacoes: a.observacoes, syncStatus: a.syncStatus,
     confirmEnviada: a.confirmEnviada, lembrete1Enviado: a.lembrete1Enviado, lembrete2Enviado: a.lembrete2Enviado,
-    formaPagamento: a.formaPagamento, lancamentoId: a.lancamentoId
+    formaPagamento: a.formaPagamento, lancamentoId: a.lancamentoId, importado: !!a.origem
   };
 }
 

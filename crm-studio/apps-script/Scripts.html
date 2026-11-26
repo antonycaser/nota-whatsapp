@@ -1157,7 +1157,10 @@ async function detalheAgendamento(id, depois) {
         <button class="btn sm" data-editar>${ico('edit')}Editar / remarcar</button>
         ${a.telefone ? `<button class="btn sm wa" data-wa>${ico('send')}Mensagem</button>` : ''}
         <button class="btn sm ghost" data-cli="${a.clienteId}">${ico('user')}Ficha da cliente</button>
-      </div>`,
+      </div>
+      ${a.importado && isAdmin() ? `<div class="alert info" style="margin-top:14px">${ico('calendar')}<div>Veio do Google Agenda.
+        <button class="btn sm" style="margin-top:8px" data-desfazer-imp>${ico('repeat')}Desfazer importação</button>
+        <div class="tiny" style="margin-top:6px">Devolve o evento como era no Google e tira do CRM (o evento não é apagado).</div></div></div>` : ''}`,
     foot: `<button class="btn sm ghost danger left" data-excluir>${ico('trash')}Excluir</button><button class="btn" data-close>Fechar</button>`
   });
   const atualizar = () => { if (depois) depois(); else render(); };
@@ -1179,7 +1182,22 @@ async function detalheAgendamento(id, depois) {
   const wa = $('[data-wa]', m.el);
   if (wa) wa.addEventListener('click', () => { m.close(); enviarMensagem(cli, a); });
   $('[data-cli]', m.el).addEventListener('click', () => { m.close(); fichaCliente(a.clienteId); });
+  const desfazer = async () => {
+    try { await call('agenda.desfazerImportacao', { id: a.id }); m.close(); toast('Importação desfeita · evento devolvido ao Google Agenda como era'); atualizar(); } catch (e) { erroToast(e); }
+  };
+  const bDesf = $('[data-desfazer-imp]', m.el);
+  if (bDesf) bDesf.addEventListener('click', () => busy(bDesf, async () => {
+    if (await confirmar('Devolver o evento ao Google Agenda como era antes e tirar este atendimento do CRM?', { ok: 'Desfazer importação' })) await desfazer();
+  }));
   $('[data-excluir]', m.el).addEventListener('click', async () => {
+    if (a.importado && isAdmin()) {
+      const r = await escolher('Este atendimento veio do Google Agenda. <b>Excluir também apaga o evento do Google.</b> Se a ideia é só tirar do CRM, desfaça a importação.', [
+        { v: 'desfazer', l: 'Só tirar do CRM', cls: 'primary' },
+        { v: 'excluir', l: 'Apagar de tudo', cls: 'danger' }
+      ], 'Excluir agendamento');
+      if (!r) return;
+      if (r === 'desfazer') return desfazer();
+    }
     const financeiro = await perguntarFinanceiro(a, 'excluir');
     if (!financeiro) return;
     try {

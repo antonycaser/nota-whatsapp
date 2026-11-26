@@ -12,7 +12,7 @@ var SCHEMA = {
   Agendamentos: ['id', 'clienteId', 'clienteNome', 'telefone', 'servicos', 'servicoNomes', 'profissionalId',
     'inicio', 'fim', 'status', 'valor', 'desconto', 'sinal', 'local', 'observacoes',
     'eventId', 'syncStatus', 'confirmEnviada', 'lembrete1Enviado', 'lembrete2Enviado', 'posEnviado',
-    'formaPagamento', 'lancamentoId', 'criadoEm', 'atualizadoEm'],
+    'formaPagamento', 'lancamentoId', 'origem', 'criadoEm', 'atualizadoEm'],
   Financeiro: ['id', 'data', 'tipo', 'categoria', 'descricao', 'valor', 'forma', 'status', 'vencimento',
     'agendamentoId', 'clienteId', 'profissionalId', 'criadoEm'],
   Mensagens: ['id', 'data', 'tipo', 'direcao', 'clienteId', 'agendamentoId', 'telefone', 'mensagem', 'status', 'detalhe'],

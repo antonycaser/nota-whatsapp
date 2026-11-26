@@ -167,15 +167,20 @@ function imp_importar_(p) {
         : servs.reduce(function (t, s) { return t + s.preco; }, 0);
       var original = String((ev.getDescription && ev.getDescription()) || '').trim();
       var titulo = String(ev.getTitle() || '').trim();
+      var localOriginal = String((ev.getLocation && ev.getLocation()) || '').trim();
+      var corOriginal = '';
+      try { corOriginal = String((ev.getColor && ev.getColor()) || ''); } catch (e) {}
+      // tudo o que o evento tinha, para o botão "Desfazer importação" devolver igualzinho
+      var origem = JSON.stringify({ titulo: titulo, descricao: original, local: localOriginal, cor: corOriginal });
 
       var a = db_insert_('Agendamentos', {
         clienteId: cli.id, clienteNome: cli.nome, telefone: cli.telefone,
         servicos: JSON.stringify(servs), servicoNomes: servs.map(function (s) { return s.nome; }).join(' + '),
         profissionalId: it.profissionalId || '', inicio: inicio, fim: fim,
         status: fim <= agora ? 'concluido' : 'agendado',
-        valor: valor, desconto: 0, sinal: 0, local: 'Studio',
-        observacoes: ('Importado do Google Agenda: "' + titulo + '"' + (original ? '\n' + original : '')).slice(0, 600),
-        eventId: it.eventId, syncStatus: 'ok'
+        valor: valor, desconto: 0, sinal: 0, local: localOriginal || 'Studio',   // mantém o endereço do evento
+        observacoes: ('Importado do Google Agenda: "' + titulo + '"' + (original ? '\n' + original : '')).slice(0, 3000),
+        eventId: it.eventId, syncStatus: 'ok', origem: origem
       });
       if (p.renomear !== false) ag_sync_(a);
       ligados[it.eventId] = 1;
@@ -185,4 +190,29 @@ function imp_importar_(p) {
     }
   });
   return res;
+}
+
+/**
+ * Desfaz a importação de um atendimento: devolve o evento do Google Agenda
+ * exatamente como estava (título, descrição, endereço e cor) e tira o
+ * atendimento do CRM — SEM apagar o evento.
+ */
+function imp_desfazer_(p) {
+  var a = db_get_('Agendamentos', p.id);
+  if (!a) throw erro_('Agendamento não encontrado.');
+  var o = json_(a.origem, null);
+  if (!o) throw erro_('Este atendimento não veio do Google Agenda.');
+  if (a.eventId) {
+    var ev = null;
+    try { ev = cal_().getEventById(a.eventId); } catch (e) {}
+    if (ev) {
+      ev.setTitle(o.titulo || '');
+      ev.setDescription(o.descricao || '');
+      ev.setLocation(o.local || '');
+      if (o.cor) { try { ev.setColor(o.cor); } catch (e) {} }
+    }
+  }
+  ag_tratarFinanceiro_(a.id, 'remover');
+  db_delete_('Agendamentos', a.id);
+  return true;
 }

@@ -300,6 +300,31 @@ t('importa sem duplicar o evento e cria a cliente nova', () => {
   // limpa para não afetar os testes seguintes
   ags.forEach(a => API(token, 'agenda.excluir', { id: a.id, financeiro: 'remover' }));
 });
+t('mantém o endereço do evento e desfaz a importação devolvendo o original', () => {
+  const dia = local(em(4 * 24 * 60));
+  const ev = MOCK.addExterno('Noiva Patrícia Andrade', new Date(dia + 'T08:00'), new Date(dia + 'T10:00'),
+    { description: 'Casamento às 16h. ' + 'x'.repeat(900), location: 'Rua das Noivas, 50 - Moema' });
+  ev.setColor('11');
+  const sug = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia }).eventos.find(x => x.eventId === ev.id);
+  const res = API(token, 'agenda.importar', { itens: [{ eventId: ev.id, novaCliente: { nome: sug.nomeNovo }, servicoIds: [servPent.id] }] });
+  assert.strictEqual(res.importados, 1, JSON.stringify(res.erros));
+  const a = db_all_('Agendamentos').find(x => x.eventId === ev.id);
+  assert.strictEqual(a.local, 'Rua das Noivas, 50 - Moema');
+  assert.strictEqual(ev.loc, 'Rua das Noivas, 50 - Moema', 'endereço continua no evento');
+  assert(a.observacoes.length > 900, 'descrição longa não foi cortada');
+  assert(ev.title.includes('Patrícia Andrade') && ev.title !== 'Noiva Patrícia Andrade');
+  assert.strictEqual(API(token, 'agenda.obter', { id: a.id }).importado, true);
+  API(token, 'agenda.desfazerImportacao', { id: a.id });
+  assert(!db_get_('Agendamentos', a.id), 'saiu do CRM');
+  assert(MOCK.events[ev.id], 'evento continua no Google');
+  assert.strictEqual(ev.title, 'Noiva Patrícia Andrade');
+  assert(ev.desc.startsWith('Casamento às 16h.'));
+  assert.strictEqual(ev.loc, 'Rua das Noivas, 50 - Moema');
+  assert.strictEqual(ev.color, '11');
+  const de_novo = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });
+  assert(de_novo.eventos.some(x => x.eventId === ev.id), 'pode ser importado de novo');
+  ev.deleteEvent();
+});
 t('evento que se repete não é importado', () => {
   const dia = local(em(3 * 24 * 60));
   const r = API(token, 'agenda.importarPrevia', { inicio: dia, fim: dia });

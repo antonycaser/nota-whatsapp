@@ -149,6 +149,7 @@
     setLocation(l) { this.loc = l; return this; } setColor(c) { this.color = c; return this; }
     getStartTime() { return this.start; } getEndTime() { return this.end; } isAllDayEvent() { return this.allDay; }
     getDescription() { return this.desc || ''; } isRecurringEvent() { return !!this.recorrente; }
+    getLocation() { return this.loc || ''; } getColor() { return this.color || ''; }
     removeAllReminders() {} addPopupReminder() {}
     deleteEvent() { delete MOCK.events[this.id]; }
   }
